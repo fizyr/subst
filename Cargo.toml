@@ -1,0 +1,9 @@
+[package]
+name = "subst"
+description = "shell-like variable substitution"
+version = "0.0.1-reserved"
+license = "BSD-2-Clause OR Apache-2.0"
+repository = "https://github.com/fizyr/subst"
+documentation = "https://docs.rs/subst"
+
+edition = "2021"
