@@ -7,3 +7,10 @@ repository = "https://github.com/fizyr/subst"
 documentation = "https://docs.rs/subst"
 
 edition = "2021"
+
+[dependencies]
+memchr = "2.4.1"
+unicode-width = "0.1.9"
+
+[dev-dependencies]
+assert2 = "0.3.6"
