@@ -14,8 +14,8 @@
 //!
 //! # Examples
 //!
-//! The [`substitute()`] function can be used to perform substitution on [`&str`].
-//! The variables can either be a [`HashMap`](std::collections::HashMap) or a [`BTreeMap`](std::collections::BTreeMap).
+//! The [`substitute()`][substitute] function can be used to perform substitution on a `&str`.
+//! The variables can either be a [`HashMap`][std::collections::HashMap] or a [`BTreeMap`][std::collections::BTreeMap].
 //!
 //! ```
 //! # fn main() -> Result<(), subst::Error> {
@@ -27,7 +27,7 @@
 //! # }
 //! ```
 //!
-//! The variables can also be taken directly from the environment with the [`Env`] map.
+//! The variables can also be taken directly from the environment with the [`Env`][Env] map.
 //!
 //! ```
 //! # fn main() -> Result<(), subst::Error> {
@@ -40,7 +40,7 @@
 //! # }
 //! ```
 //!
-//! Substitution can also be done on byte strings using the [`substitute_bytes()`] function.
+//! Substitution can also be done on byte strings using the [`substitute_bytes()`][substitute_bytes] function.
 //!
 //! ```
 //! # fn main() -> Result<(), subst::Error> {
