@@ -1,6 +1,6 @@
 # subst
 
-Shell-like variable substition for strings and byte strings.
+Shell-like variable substitution for strings and byte strings.
 
 ## Features
 

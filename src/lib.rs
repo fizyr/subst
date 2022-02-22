@@ -1,4 +1,4 @@
-//! Shell-like variable substition for strings and byte strings.
+//! Shell-like variable substitution for strings and byte strings.
 //!
 //! # Features
 //!
@@ -65,7 +65,7 @@ pub use map::*;
 /// A variable name can only consist of ASCII letters, digits and underscores.
 /// They are allowed to start with numbers.
 ///
-/// You can escape dollar signs, backslashes, colons and braces with a backlash.
+/// You can escape dollar signs, backslashes, colons and braces with a backslash.
 ///
 /// You can pass either a [`HashMap`][std::collections::HashMap], [`BTreeMap`][std::collections::BTreeMap] or [`Env`] as the `variables` parameter.
 /// The maps must have [`&str`] or [`String`] keys, and the values must be [`AsRef<str>`].
@@ -88,7 +88,7 @@ where
 /// A variable name can only consist of ASCII letters, digits and underscores.
 /// They are allowed to start with numbers.
 ///
-/// You can escape dollar signs, backslashes, colons and braces with a backlash.
+/// You can escape dollar signs, backslashes, colons and braces with a backslash.
 ///
 /// You can pass either a [`HashMap`][std::collections::HashMap], [`BTreeMap`][std::collections::BTreeMap] as the `variables` parameter.
 /// The maps must have [`&str`] or [`String`] keys, and the values must be [`AsRef<[u8]>`].
@@ -254,7 +254,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 	})
 }
 
-/// Find the first non-escaped occurence of a character.
+/// Find the first non-escaped occurrence of a character.
 fn find_non_escaped(needle: u8, haystack: &[u8]) -> Option<usize> {
 	let mut finger = 0;
 	while finger < haystack.len() {
