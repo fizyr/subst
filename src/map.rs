@@ -23,7 +23,7 @@ impl<'a> VariableMap<'a> for Env {
 
 /// A map that gives byte strings from the environment.
 ///
-/// Only available on unix platforms.
+/// Only available on Unix platforms.
 #[cfg(unix)]
 #[derive(Debug)]
 pub struct EnvBytes;

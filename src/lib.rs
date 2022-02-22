@@ -1,6 +1,22 @@
 //! Shell-like variable substition for strings and byte strings.
 //!
-//! # Example 1: String substitution using a custom variable map.
+//! # Features
+//!
+//! * Perform substitution in `&str` or in `&[u8]`.
+//! * Provide a custom map of variables or use environment variables.
+//! * Short format: `"Hello $name!"`
+//! * Long format: `"Hello ${name}!"`
+//! * Default values: `"Hello ${name:person}!"`
+//! * Recursive substitution in default values: `"${XDG_CONFIG_HOME:$HOME/.config}/my-app/config.toml"`
+//!
+//! Variable names can consist of alphanumeric characters and underscores.
+//! They are allowed to start with numbers.
+//!
+//! # Examples
+//!
+//! The [`substitute()`] function can be used to perform substitution on [`&str`].
+//! The variables can either be a [`HashMap`](std::collections::HashMap) or a [`BTreeMap`](std::collections::BTreeMap).
+//!
 //! ```
 //! # fn main() -> Result<(), subst::Error> {
 //! # use std::collections::HashMap;
@@ -11,16 +27,21 @@
 //! # }
 //! ```
 //!
-//! # Example 2: String substitution using the environment.
+//! The variables can also be taken directly from the environment with the [`Env`] map.
+//!
 //! ```
 //! # fn main() -> Result<(), subst::Error> {
 //! # std::env::set_var("XDG_CONFIG_HOME", "/home/user/.config");
-//! assert_eq!(subst::substitute("$XDG_CONFIG_HOME/my-app/config.toml", &subst::Env)?, "/home/user/.config/my-app/config.toml");
+//! assert_eq!(
+//!   subst::substitute("$XDG_CONFIG_HOME/my-app/config.toml", &subst::Env)?,
+//!   "/home/user/.config/my-app/config.toml",
+//! );
 //! # Ok(())
 //! # }
 //! ```
 //!
-//! # Example 3: Substitution in byte strings.
+//! Substitution can also be done on byte strings using the [`substitute_bytes()`] function.
+//!
 //! ```
 //! # fn main() -> Result<(), subst::Error> {
 //! # use std::collections::HashMap;
