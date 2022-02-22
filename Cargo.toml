@@ -7,6 +7,9 @@ repository = "https://github.com/fizyr/subst"
 documentation = "https://docs.rs/subst"
 readme = "README.md"
 
+keywords = ["substitution", "expansion", "variable", "parameter", "shell"]
+categories = ["template-engine", "value-formatting"]
+
 edition = "2021"
 
 [dependencies]
