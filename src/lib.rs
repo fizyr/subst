@@ -32,8 +32,6 @@
 //! ```
 #![warn(missing_docs, missing_debug_implementations)]
 
-use std::borrow::Cow;
-
 mod error;
 pub use error::*;
 
@@ -55,7 +53,8 @@ where
 	M: VariableMap<'a>,
 	M::Value: AsRef<str>,
 {
-	let output = substitute_impl(source.as_bytes(), variables, |x| x.as_ref().as_bytes())?;
+	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
+	substitute_impl(&mut output, source.as_bytes(), 0..source.len(), variables, &|x| x.as_ref().as_bytes())?;
 	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
 	unsafe {
 		Ok(String::from_utf8_unchecked(output))
@@ -78,22 +77,23 @@ where
 	M: VariableMap<'a>,
 	M::Value: AsRef<[u8]>,
 {
-	substitute_impl(source, variables, |x| x.as_ref())
+	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
+	substitute_impl(&mut output, source, 0..source.len(), variables, &|x| x.as_ref())?;
+	Ok(output)
 }
 
 /// Substitute variables in a byte string.
 ///
 /// This is the real implementation used by both [`substitute`] and [`substitute_bytes`].
 /// The function accepts any type that implements [`VariableMap`], and a function to convert the value from the map into bytes.
-fn substitute_impl<'a, M, F>(source: &[u8], variables: &'a M, to_bytes: F) -> Result<Vec<u8>, Error>
+fn substitute_impl<'a, M, F>(output: &mut Vec<u8>, source: &[u8], range: std::ops::Range<usize>, variables: &'a M, to_bytes: &F) -> Result<(), Error>
 where
 	M: VariableMap<'a>,
 	F: Fn(&M::Value) -> &[u8],
 {
-	let mut finger = 0;
-	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	while finger < source.len() {
-		let next = match memchr::memchr2(b'$', b'\\', &source[finger..]) {
+	let mut finger = range.start;
+	while finger < range.end {
+		let next = match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
 			Some(x) => finger + x,
 			None => break,
 		};
@@ -104,24 +104,25 @@ where
 			finger = next + 2;
 		} else {
 			let variable = parse_variable(source, next)?;
-			let default = variable.default.as_ref().map(|x| x.as_ref());
-			dbg!(&variable);
 			let value = variables.get(variable.name);
-			let value = dbg!(value
-				.as_ref()
-				.map(&to_bytes))
-				.or(default)
-				.ok_or_else(|| ErrorInner::NoSuchVariable {
+			match (&value, &variable.default) {
+				(None, None) => return Err(ErrorInner::NoSuchVariable {
 					position: variable.name_start,
 					name: variable.name.to_owned(),
-				})?;
-			output.extend_from_slice(value);
+				}.into()),
+				(Some(value), _) => {
+					output.extend_from_slice(to_bytes(value));
+				}
+				(None, Some(default)) => {
+					substitute_impl(output, source, default.clone(), variables, to_bytes)?;
+				}
+			};
 			finger = variable.end_position;
 		}
 	}
 
-	output.extend_from_slice(&source[finger..]);
-	Ok(output)
+	output.extend_from_slice(&source[finger..range.end]);
+	Ok(())
 }
 
 
@@ -135,7 +136,7 @@ struct Variable<'a> {
 	name_start: usize,
 
 	/// The default value of the variable.
-	default: Option<Cow<'a, [u8]>>,
+	default: Option<std::ops::Range<usize>>,
 
 	/// The end position of the entire variable in the source.
 	end_position: usize,
@@ -224,11 +225,10 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 			position: finger + 1,
 		})?;
 
-	let default = unescape(source, name_end + 1, end)?;
 	Ok(Variable {
 		name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
 		name_start,
-		default: Some(default),
+		default: Some(name_end + 1..end),
 		end_position: end + 1,
 	})
 }
@@ -248,46 +248,6 @@ fn find_non_escaped(needle: u8, haystack: &[u8]) -> Option<usize> {
 		}
 	}
 	None
-}
-
-/// Unescape a byte string.
-///
-/// Only valid escape sequences ('\$' '\{' '\}' and '\:') are accepted.
-/// Invalid escape sequences cause an error to be returned.
-///
-/// If the input contains no escape sequences, it is returned unmodified without copying the data.
-fn unescape(source: &[u8], start: usize, end: usize) -> Result<Cow<[u8]>, Error> {
-	// Check if there is any escape character.
-	// If not, just return the borrowed input.
-	let mut finger = match memchr::memchr(b'\\', &source[start..end]) {
-		None => return Ok(Cow::Borrowed(&source[start..end])),
-		Some(x) => start + x,
-	};
-
-	// There was atleast one backslash, so we have to return an owned vector.
-	// Fill it until the first escape sequence.
-	let mut output = Vec::with_capacity(end - start);
-	output.extend_from_slice(&source[start..finger]);
-	output.push(unescape_one(&source[..end], finger)?);
-	finger += 2;
-
-	// Keep parsing escape sequences until the input is consumed.
-	while finger < end {
-		match memchr::memchr(b'\\', &source[finger..end]) {
-			None => {
-				output.extend_from_slice(&source[finger..end]);
-				finger = end;
-			},
-			Some(x) => {
-				let position = finger + x;
-				output.extend_from_slice(&source[finger..position]);
-				output.push(unescape_one(&source[..end], position)?);
-				finger = position + 2;
-			},
-		}
-	}
-
-	Ok(Cow::Owned(output))
 }
 
 /// Unescape a single escape sequence in source at the given position.
@@ -321,25 +281,6 @@ mod test {
 	use super::*;
 
 	#[test]
-	fn test_unescape_borrows_when_possible() {
-		let_assert!(Ok(Cow::Borrowed(b"foo bar")) = unescape(b"foo bar", 0, 7));
-	}
-
-	#[test]
-	fn test_unescape() {
-		let_assert!(Ok(Cow::Owned(unescaped)) = unescape(b"foo \\\\\\$b\\{ar\\}", 0, 15));
-		check!(unescaped == b"foo \\$b{ar}");
-		check!(unescape(b"foo\\", 0, 4) == Err(ErrorInner::InvalidEscapeSequence {
-			position: 3,
-			character: None,
-		}.into()));
-		check!(unescape(b"foo \\bar", 0, 8) == Err(ErrorInner::InvalidEscapeSequence {
-			position: 4,
-			character: Some(b'b'),
-		}.into()));
-	}
-
-	#[test]
 	fn test_find_non_escaped() {
 		check!(find_non_escaped(b'$', b"$foo") == Some(0));
 		check!(find_non_escaped(b'$', b"\\$foo$") == Some(5));
@@ -362,6 +303,13 @@ mod test {
 		check!(let Ok("Hello world!") = substitute("Hello ${name}!", &map).as_deref());
 		check!(let Ok("Hello world!") = substitute("Hello ${name:not-world}!", &map).as_deref());
 		check!(let Ok("Hello world!") = substitute("Hello ${not_name:world}!", &map).as_deref());
+	}
+
+	#[test]
+	fn substitution_in_default_value() {
+		let mut map: BTreeMap<String, String> = BTreeMap::new();
+		map.insert("name".into(), "world".into());
+		check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel $name}!", &map).as_deref());
 	}
 
 	#[test]
