@@ -10,6 +10,7 @@ Shell-like variable substitution for strings and byte strings.
 * Long format: `"Hello ${name}!"`
 * Default values: `"Hello ${name:person}!"`
 * Recursive substitution in default values: `"${XDG_CONFIG_HOME:$HOME/.config}/my-app/config.toml"`
+* Perform substitution on all string values in YAML data (optional, requires the `yaml` feature).
 
 Variable names can consist of alphanumeric characters and underscores.
 They are allowed to start with numbers.
