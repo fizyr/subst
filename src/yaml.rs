@@ -134,4 +134,28 @@ mod test {
 		assert!(parsed.bar == "aap");
 		assert!(parsed.baz == "noot/with/stuff");
 	}
+
+	#[test]
+	fn test_yaml_in_var_is_not_parsed() {
+		#[derive(Debug, serde::Deserialize)]
+		struct Struct {
+			bar: String,
+			baz: String,
+		}
+
+		let mut variables = HashMap::new();
+		variables.insert("bar", "aap\nbaz: mies");
+		variables.insert("baz", "noot");
+		let_assert!(Ok(parsed) = from_str(
+			concat!(
+				"bar: $bar\n",
+				"baz: $baz\n",
+			),
+			&variables,
+		));
+
+		let parsed: Struct = parsed;
+		assert!(parsed.bar == "aap\nbaz: mies");
+		assert!(parsed.baz == "noot");
+	}
 }
