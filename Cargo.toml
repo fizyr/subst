@@ -10,7 +10,7 @@ readme = "README.md"
 keywords = ["substitution", "expansion", "variable", "parameter", "shell"]
 categories = ["template-engine", "value-formatting"]
 
-edition = "2021"
+edition = "2018"
 
 [features]
 yaml = ["serde", "serde_yaml"]

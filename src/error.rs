@@ -59,7 +59,7 @@ impl std::fmt::Display for Error {
 				write!(f, "Missing closing brace")
 			},
 			ErrorInner::NoSuchVariable { position: _, name } => {
-				write!(f, "No such variable: ${name}")
+				write!(f, "No such variable: ${}", name)
 			},
 		}
 	}
