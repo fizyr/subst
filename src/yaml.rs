@@ -137,6 +137,30 @@ mod test {
 	}
 
 	#[test]
+	fn test_from_str_no_substitution() {
+		#[derive(Debug, serde::Deserialize)]
+		struct Struct {
+			bar: String,
+			baz: String,
+		}
+
+		let mut variables = HashMap::new();
+		variables.insert("bar", "aap");
+		variables.insert("baz", "noot");
+		let_assert!(Ok(parsed) = from_str(
+			concat!(
+				"bar: aap\n",
+				"baz: noot/with/stuff\n",
+			),
+			&crate::NoSubstitution,
+		));
+
+		let parsed: Struct = parsed;
+		assert!(parsed.bar == "aap");
+		assert!(parsed.baz == "noot/with/stuff");
+	}
+
+	#[test]
 	fn test_yaml_in_var_is_not_parsed() {
 		#[derive(Debug, serde::Deserialize)]
 		struct Struct {

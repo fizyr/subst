@@ -14,10 +14,21 @@ pub trait VariableMap<'a> {
 pub struct NoSubstitution;
 
 impl<'a> VariableMap<'a> for NoSubstitution {
-	type Value = String;
+	type Value = NeverValue;
 
 	fn get(&'a self, _key: &str) -> Option<Self::Value> {
 		None
+	}
+}
+
+/// Value returned by the `NoSubstitution` map.
+#[derive(Debug)]
+pub enum NeverValue {}
+
+impl<T: ?Sized> AsRef<T> for NeverValue {
+	fn as_ref(&self) -> &T {
+		match *self {
+		}
 	}
 }
 

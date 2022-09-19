@@ -1,3 +1,6 @@
+# Unreleased
+- [change][minor] Have `NoSubstitution` return an uninhibated `NeverType` as value.
+
 # Version 0.2.1 - 2022-09-19
 - [add][minor] Add a `NoSubstitution` map to allow disabling substitution in generic code.
 
