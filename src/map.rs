@@ -9,6 +9,18 @@ pub trait VariableMap<'a> {
 	fn get(&'a self, key: &str) -> Option<Self::Value>;
 }
 
+/// A map performs no substitution at all.
+#[derive(Debug)]
+pub struct NoSubstitution;
+
+impl<'a> VariableMap<'a> for NoSubstitution {
+	type Value = String;
+
+	fn get(&'a self, _key: &str) -> Option<Self::Value> {
+		None
+	}
+}
+
 /// A map that gives strings from the environment.
 #[derive(Debug)]
 pub struct Env;
