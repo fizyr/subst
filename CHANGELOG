@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.2.2 - 2022-09-19
 - [change][minor] Have `NoSubstitution` return an uninhibated `NeverType` as value.
 
 # Version 0.2.1 - 2022-09-19
