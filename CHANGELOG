@@ -1,3 +1,6 @@
+# Unreleased
+- [change][major] Update `serde_yaml` to version `0.9`.
+
 # Version 0.1.2 - 2022-03-03
 - [change][minor] Remove use of new features to be compatible with older Rust versions.
 

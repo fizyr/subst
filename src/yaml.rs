@@ -89,6 +89,7 @@ where
 		serde_yaml::Value::Bool(_) => Ok(()),
 		serde_yaml::Value::Number(_) => Ok(()),
 		serde_yaml::Value::String(val) => fun(val),
+		serde_yaml::Value::Tagged(tagged) => visit_string_values(&mut tagged.value, fun),
 		serde_yaml::Value::Sequence(seq) => {
 			for value in seq {
 				visit_string_values(value, fun)?;
@@ -149,6 +150,30 @@ mod test {
 		let_assert!(Ok(parsed) = from_str(
 			concat!(
 				"bar: $bar\n",
+				"baz: $baz\n",
+			),
+			&variables,
+		));
+
+		let parsed: Struct = parsed;
+		assert!(parsed.bar == "aap\nbaz: mies");
+		assert!(parsed.baz == "noot");
+	}
+
+	#[test]
+	fn test_tagged_values_are_substituted() {
+		#[derive(Debug, serde::Deserialize)]
+		struct Struct {
+			bar: String,
+			baz: String,
+		}
+
+		let mut variables = HashMap::new();
+		variables.insert("bar", "aap\nbaz: mies");
+		variables.insert("baz", "noot");
+		let_assert!(Ok(parsed) = from_str(
+			concat!(
+				"bar: !!string $bar\n",
 				"baz: $baz\n",
 			),
 			&variables,
