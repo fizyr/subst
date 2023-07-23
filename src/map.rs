@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, HashMap};
+use std::hash::BuildHasher;
 
 /// Trait for types that can be used as a variable map.
 pub trait VariableMap<'a> {
@@ -78,7 +79,7 @@ impl<'a, V: 'a> VariableMap<'a> for BTreeMap<String, V> {
 	}
 }
 
-impl<'a, V: 'a> VariableMap<'a> for HashMap<&str, V> {
+impl<'a, V: 'a, S: BuildHasher> VariableMap<'a> for HashMap<&str, V, S> {
 	type Value = &'a V;
 
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
@@ -86,7 +87,7 @@ impl<'a, V: 'a> VariableMap<'a> for HashMap<&str, V> {
 	}
 }
 
-impl<'a, V: 'a> VariableMap<'a> for HashMap<String, V> {
+impl<'a, V: 'a, S: BuildHasher> VariableMap<'a> for HashMap<String, V, S> {
 	type Value = &'a V;
 
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
