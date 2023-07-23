@@ -75,7 +75,7 @@ pub mod yaml;
 /// The maps must have [`&str`] or [`String`] keys, and the values must be [`AsRef<str>`].
 pub fn substitute<'a, M>(source: &str, variables: &'a M) -> Result<String, Error>
 where
-	M: VariableMap<'a>,
+	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
@@ -99,7 +99,7 @@ where
 /// On Unix platforms, you can also use [`EnvBytes`].
 pub fn substitute_bytes<'a, M>(source: &[u8], variables: &'a M) -> Result<Vec<u8>, Error>
 where
-	M: VariableMap<'a>,
+	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<[u8]>,
 {
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
@@ -113,7 +113,7 @@ where
 /// The function accepts any type that implements [`VariableMap`], and a function to convert the value from the map into bytes.
 fn substitute_impl<'a, M, F>(output: &mut Vec<u8>, source: &[u8], range: std::ops::Range<usize>, variables: &'a M, to_bytes: &F) -> Result<(), Error>
 where
-	M: VariableMap<'a>,
+	M: VariableMap<'a> + ?Sized,
 	F: Fn(&M::Value) -> &[u8],
 {
 	let mut finger = range.start;
