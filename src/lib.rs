@@ -466,4 +466,14 @@ mod test {
 				"         ^^^^\n",
 		));
 	}
+
+	#[test]
+	fn test_dyn_variable_map() {
+		let mut variables = BTreeMap::new();
+		variables.insert(String::from("aap"), String::from("noot"));
+		let variables: &dyn VariableMap<Value = &String> = &variables;
+
+		let_assert!(Ok(expanded) = substitute("one ${aap}", variables));
+		assert!(expanded == "one noot");
+	}
 }
