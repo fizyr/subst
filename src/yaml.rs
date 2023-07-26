@@ -11,7 +11,7 @@ use crate::VariableMap;
 /// and then parses it further into the desired type.
 pub fn from_slice<'a, T: DeserializeOwned, M>(data: &[u8], variables: &'a M) -> Result<T, Error>
 where
-	M: VariableMap<'a>,
+	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	let mut value: serde_yaml::Value = serde_yaml::from_slice(data)?;
@@ -26,7 +26,7 @@ where
 /// and then parses it further into the desired type.
 pub fn from_str<'a, T: DeserializeOwned, M>(data: &str, variables: &'a M) -> Result<T, Error>
 where
-	M: VariableMap<'a>,
+	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	let mut value: serde_yaml::Value = serde_yaml::from_str(data)?;
@@ -37,7 +37,7 @@ where
 /// Perform variable substitution on string values of a YAML value.
 pub fn substitute_string_values<'a, M>(value: &mut serde_yaml::Value, variables: &'a M) -> Result<(), crate::Error>
 where
-	M: VariableMap<'a>,
+	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	visit_string_values(value, |value| {
