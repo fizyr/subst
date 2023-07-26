@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.2.3 - 2023-07-26
 - [add][minor] Support unsized `VariableMap` objects, such as `&dyn VariableMap`.
 
 # Version 0.2.2 - 2022-09-19
