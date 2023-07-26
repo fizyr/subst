@@ -207,4 +207,30 @@ mod test {
 		assert!(parsed.bar == "aap\nbaz: mies");
 		assert!(parsed.baz == "noot");
 	}
+
+	#[test]
+	fn test_dyn_variable_map() {
+		#[derive(Debug, serde::Deserialize)]
+		struct Struct {
+			bar: String,
+			baz: String,
+		}
+
+		let mut variables = HashMap::new();
+		variables.insert("bar", "aap");
+		variables.insert("baz", "noot");
+		let variables: &dyn VariableMap<Value = &&str> = &variables;
+
+		let_assert!(Ok(parsed) = from_str(
+			concat!(
+				"bar: $bar\n",
+				"baz: $baz/with/stuff\n",
+			),
+			variables,
+		));
+
+		let parsed: Struct = parsed;
+		assert!(parsed.bar == "aap");
+		assert!(parsed.baz == "noot/with/stuff");
+	}
 }
