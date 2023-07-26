@@ -6,6 +6,7 @@ license = "BSD-2-Clause OR Apache-2.0"
 repository = "https://github.com/fizyr/subst"
 documentation = "https://docs.rs/subst"
 readme = "README.md"
+publish = ["crates-io"]
 
 keywords = ["substitution", "expansion", "variable", "parameter", "shell"]
 categories = ["template-engine", "value-formatting"]
