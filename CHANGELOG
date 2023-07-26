@@ -1,3 +1,6 @@
+# Unreleased
+- [add][minor] Support unsized `VariableMap` objects, such as `&dyn VariableMap`.
+
 # Version 0.2.2 - 2022-09-19
 - [change][minor] Have `NoSubstitution` return an uninhibated `NeverType` as value.
 
