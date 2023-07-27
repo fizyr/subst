@@ -54,8 +54,8 @@
 //! ```
 #![warn(missing_docs, missing_debug_implementations)]
 
-mod error;
-pub use error::*;
+pub mod error;
+pub use error::Error;
 
 mod map;
 pub use map::*;
@@ -131,7 +131,7 @@ where
 			let variable = parse_variable(source, next)?;
 			let value = variables.get(variable.name);
 			match (&value, &variable.default) {
-				(None, None) => return Err(ErrorInner::NoSuchVariable {
+				(None, None) => return Err(error::NoSuchVariable {
 					position: variable.name_start,
 					name: variable.name.to_owned(),
 				}.into()),
@@ -172,7 +172,7 @@ struct Variable<'a> {
 /// The finger must be the position of the dollar sign in the source.
 fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 	if finger == source.len() {
-		return Err(ErrorInner::MissingVariableName {
+		return Err(error::MissingVariableName {
 			position: finger,
 			len: 1,
 		}.into())
@@ -181,7 +181,7 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 		parse_braced_variable(source, finger)
 	} else {
 		let name_end = match source[finger + 1..].iter().position(|&c| !c.is_ascii_alphanumeric() && c != b'_') {
-			Some(0) => return Err(ErrorInner::MissingVariableName {
+			Some(0) => return Err(error::MissingVariableName {
 				position: finger,
 				len: 1,
 			}.into()),
@@ -203,7 +203,7 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 	let name_start = finger + 2;
 	if name_start >= source.len() {
-		return Err(ErrorInner::MissingVariableName {
+		return Err(error::MissingVariableName {
 			position: finger,
 			len: 2,
 		}.into())
@@ -211,7 +211,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 
 	// Get the first sequence of alphanumeric characters and underscores for the variable name.
 	let name_end = match source[name_start..].iter().position(|&c| !c.is_ascii_alphanumeric() && c != b'_') {
-		Some(0) => return Err(ErrorInner::MissingVariableName {
+		Some(0) => return Err(error::MissingVariableName {
 			position: finger,
 			len: 2,
 		}.into()),
@@ -221,7 +221,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 
 	// If the name extends to the end, we're missing a closing brace.
 	if name_end == source.len() {
-		return Err(ErrorInner::MissingClosingBrace {
+		return Err(error::MissingClosingBrace {
 			position: finger + 1,
 		}.into())
 	}
@@ -237,16 +237,16 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 
 	// If there is something other than a closing brace or colon after the name, it's an error.
 	} else if source[name_end] != b':' {
-		return Err(ErrorInner::UnexpectedCharacter {
+		return Err(error::UnexpectedCharacter {
 			position: name_end,
 			character: source[name_end],
-			expected: "a closing brace ('}') or colon (':')",
+			expected: error::ExpectedCharacter { message: "a closing brace ('}') or colon (':')" },
 		}.into());
 	}
 
 	// If there is no un-escaped closing brace, it's missing.
 	let end = finger + find_non_escaped(b'}', &source[finger..])
-		.ok_or_else(|| ErrorInner::MissingClosingBrace {
+		.ok_or(error::MissingClosingBrace {
 			position: finger + 1,
 		})?;
 
@@ -277,11 +277,13 @@ fn find_non_escaped(needle: u8, haystack: &[u8]) -> Option<usize> {
 
 /// Unescape a single escape sequence in source at the given position.
 ///
+/// The `position` must point to the backslash character in the source text.
+///
 /// Only valid escape sequences ('\$' '\{' '\}' and '\:') are accepted.
 /// Invalid escape sequences cause an error to be returned.
 fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
 	if position == source.len() - 1 {
-		return Err(ErrorInner::InvalidEscapeSequence {
+		return Err(error::InvalidEscapeSequence {
 			position,
 			character: None,
 		}.into())
@@ -292,7 +294,7 @@ fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
 		b'{' => Ok(b'{'),
 		b'}' => Ok(b'}'),
 		b':' => Ok(b':'),
-		other => Err(ErrorInner::InvalidEscapeSequence {
+		other => Err(error::InvalidEscapeSequence {
 			position,
 			character: Some(other),
 		}.into())
