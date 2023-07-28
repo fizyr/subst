@@ -239,7 +239,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 	} else if source[name_end] != b':' {
 		return Err(error::UnexpectedCharacter {
 			position: name_end,
-			character: source[name_end],
+			character: get_maybe_char_at(source, name_end),
 			expected: error::ExpectedCharacter { message: "a closing brace ('}') or colon (':')" },
 		}.into());
 	}
@@ -256,6 +256,17 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 		default: Some(name_end + 1..end),
 		end_position: end + 1,
 	})
+}
+
+fn get_maybe_char_at(data: &[u8], index: usize) -> u32 {
+	if let Ok(string) = std::str::from_utf8(data) {
+		if string.is_char_boundary(index) {
+			if let Some(c) = string[index..].chars().next() {
+				return c.into()
+			}
+		}
+	}
+	data[index].into()
 }
 
 /// Find the first non-escaped occurrence of a character.
@@ -294,9 +305,9 @@ fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
 		b'{' => Ok(b'{'),
 		b'}' => Ok(b'}'),
 		b':' => Ok(b':'),
-		other => Err(error::InvalidEscapeSequence {
+		_ => Err(error::InvalidEscapeSequence {
 			position,
-			character: Some(other),
+			character: Some(get_maybe_char_at(source, position + 1)),
 		}.into())
 	}
 }
@@ -360,16 +371,16 @@ mod test {
 	fn test_invalid_escape_sequence() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = br"Hello \world!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello \world!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Invalid escape sequence: \w");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello \world!", "\n",
 				r"        ^^", "\n",
 		));
 
-		let source = br"Hello world!\";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello world!\";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Invalid escape sequence: missing escape character");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello world!\", "\n",
@@ -381,24 +392,24 @@ mod test {
 	fn test_missing_variable_name() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = br"Hello $!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello $!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Missing variable name");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello $!", "\n",
 				r"        ^", "\n",
 		));
 
-		let source = br"Hello ${}!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello ${}!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Missing variable name");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello ${}!", "\n",
 				r"        ^^", "\n",
 		));
 
-		let source = br"Hello ${:fallback}!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello ${:fallback}!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Missing variable name");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello ${:fallback}!", "\n",
@@ -410,16 +421,16 @@ mod test {
 	fn test_unexpected_character() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = b"Hello ${name)!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name)!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "Unexpected character: ')', expected a closing brace ('}') or colon (':')");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name)!\n",
 				"              ^\n",
 		));
 
-		let source = b"Hello $name!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello $name!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "No such variable: $name");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello $name!\n",
@@ -431,16 +442,16 @@ mod test {
 	fn test_missing_closing_brace() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = b"Hello ${name";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "Missing closing brace");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name\n",
 				"         ^\n",
 		));
 
-		let source = b"Hello ${name:fallback";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name:fallback";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "Missing closing brace");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name:fallback\n",
@@ -452,16 +463,16 @@ mod test {
 	fn test_substitute_no_such_variable() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = b"Hello ${name}!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name}!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "No such variable: $name");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name}!\n",
 				"          ^^^^\n",
 		));
 
-		let source = b"Hello $name!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello $name!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "No such variable: $name");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello $name!\n",
@@ -477,5 +488,18 @@ mod test {
 
 		let_assert!(Ok(expanded) = substitute("one ${aap}", variables));
 		assert!(expanded == "one noot");
+	}
+
+	#[test]
+	fn test_unicode_invalid_escape_sequence() {
+		let mut variables = BTreeMap::new();
+		variables.insert(String::from("aap"), String::from("noot"));
+
+		let source = r"emoticon: \（ ^▽^ ）/";
+		let_assert!(Err(e) = substitute(source, &variables));
+		assert!(e.source_highlighting(source) == concat!(
+				r"  emoticon: \（ ^▽^ ）/", "\n",
+				r"            ^^^", "\n",
+		));
 	}
 }

@@ -1,5 +1,7 @@
 # Unreleased
 - [add][minor] Expose error details publically.
+- [fix][minor] Fix panic when processing multibyte UTF-8 escape sequence.
+- [change][major] Require a valid UTF-8 `&str` for `Error::print_source_highlighting()`.
 
 # Version 0.2.3 - 2023-07-26
 - [add][minor] Support unsized `VariableMap` objects, such as `&dyn VariableMap`.
