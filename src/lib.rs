@@ -54,6 +54,8 @@
 //! ```
 #![warn(missing_docs, missing_debug_implementations)]
 
+use bstr::{BStr, ByteSlice, ByteVec};
+
 pub mod error;
 pub use error::Error;
 
@@ -78,12 +80,15 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source.as_bytes(), 0..source.len(), variables, &|x| x.as_ref().as_bytes())?;
+	let mut output = Vec::with_capacity(source.len() + source.len() / 8);
+	substitute_impl(&mut output, source.as_bytes(), 0, variables, |v| v.as_ref().as_bytes())?;
 	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
+	#[cfg(not(debug_assertions))]
 	unsafe {
 		Ok(String::from_utf8_unchecked(output))
 	}
+	#[cfg(debug_assertions)]
+	Ok(String::from_utf8(output).unwrap())
 }
 
 /// Substitute variables in a byte string.
@@ -102,54 +107,65 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<[u8]>,
 {
-	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source, 0..source.len(), variables, &|x| x.as_ref())?;
+	let mut output = Vec::with_capacity(source.len() + source.len() / 8);
+	substitute_impl(&mut output, source, 0, variables, |v| v.as_ref())?;
 	Ok(output)
 }
 
 /// Substitute variables in a byte string.
 ///
 /// This is the real implementation used by both [`substitute`] and [`substitute_bytes`].
-/// The function accepts any type that implements [`VariableMap`], and a function to convert the value from the map into bytes.
-fn substitute_impl<'a, M, F>(output: &mut Vec<u8>, source: &[u8], range: std::ops::Range<usize>, variables: &'a M, to_bytes: &F) -> Result<(), Error>
+/// `source_start` is used for diagnostic purposes and
+/// should be the position of the start of `source` relative to the original input.
+fn substitute_impl<'a, M, F>(
+	output: &mut Vec<u8>,
+	mut source: &[u8],
+	source_start: usize,
+	variables: &'a M,
+	value_to_bytes: F,
+) -> Result<(), Error>
 where
 	M: VariableMap<'a> + ?Sized,
-	F: Fn(&M::Value) -> &[u8],
+	F: Fn(&M::Value) -> &[u8] + Copy,
 {
-	let mut finger = range.start;
-	while finger < range.end {
-		let next = match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
-			Some(x) => finger + x,
+	while !source.is_empty() {
+		let idx = match memchr::memchr2(b'$', b'\\', source) {
+			Some(idx) => idx,
 			None => break,
 		};
 
-		output.extend_from_slice(&source[finger..next]);
-		if source[next] == b'\\' {
-			output.push(unescape_one(source, next)?);
-			finger = next + 2;
+		let (head, body) = source.split_at(idx);
+		output.extend_from_slice(head);
+
+		if body[0] == b'\\' {
+			let escaped_char = unescape_one(body, source_start + idx)?;
+			output.push_char(escaped_char);
+			source = &body[escaped_char.len_utf8()..];
 		} else {
-			let variable = parse_variable(source, next)?;
+			let variable = Variable::parse(body, source_start + idx)?;
 			let value = variables.get(variable.name);
-			match (&value, &variable.default) {
-				(None, None) => return Err(error::NoSuchVariable {
-					position: variable.name_start,
-					name: variable.name.to_owned(),
-				}.into()),
+			match (value, variable.default) {
+				(None, None) => {
+					return Err(error::NoSuchVariable {
+						position: source_start + variable.name_start,
+						name: variable.name.to_owned(),
+					}
+					.into())
+				},
 				(Some(value), _) => {
-					output.extend_from_slice(to_bytes(value));
-				}
+					output.extend_from_slice(value_to_bytes(&value));
+				},
 				(None, Some(default)) => {
-					substitute_impl(output, source, default.clone(), variables, to_bytes)?;
-				}
+					substitute_impl(output, default, source_start + idx, variables, value_to_bytes)?;
+				},
 			};
-			finger = variable.end_position;
+			source = &body[variable.len..];
 		}
 	}
 
-	output.extend_from_slice(&source[finger..range.end]);
+	output.extend_from_slice(source);
 	Ok(())
 }
-
 
 /// A parsed variable.
 #[derive(Debug)]
@@ -161,101 +177,104 @@ struct Variable<'a> {
 	name_start: usize,
 
 	/// The default value of the variable.
-	default: Option<std::ops::Range<usize>>,
+	default: Option<&'a BStr>,
 
-	/// The end position of the entire variable in the source.
-	end_position: usize,
+	/// The length of the entire variable.
+	len: usize,
 }
 
-/// Parse a variable from source at the given position.
-///
-/// The finger must be the position of the dollar sign in the source.
-fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
-	if finger == source.len() {
-		return Err(error::MissingVariableName {
-			position: finger,
-			len: 1,
-		}.into())
-	}
-	if source[finger + 1] == b'{' {
-		parse_braced_variable(source, finger)
-	} else {
-		let name_end = match source[finger + 1..].iter().position(|&c| !c.is_ascii_alphanumeric() && c != b'_') {
-			Some(0) => return Err(error::MissingVariableName {
-				position: finger,
-				len: 1,
-			}.into()),
-			Some(x) => finger + 1 + x,
+impl<'a> Variable<'a> {
+	/// Parse a variable from source.
+	///
+	/// `source_start` is used for diagnostic purposes and
+	/// should be the position of the dollar sign in the original input.
+	fn parse(source: &'a [u8], source_start: usize) -> Result<Self, Error> {
+		let mut chars = source.char_indices();
+		chars.next(); // '$'
+
+		let (name_start, _, first_char_after_dollar) = match chars.next() {
+			Some(t) if is_valid_name(t.2) || t.2 == '{' => t,
+			_ => {
+				return Err(error::MissingVariableName {
+					position: source_start,
+					len: 1,
+				}
+				.into())
+			},
+		};
+
+		let name_end = match chars.find(|&(_, _, c)| !is_valid_name(c)) {
+			Some((first_byte_after_name, _, _)) => first_byte_after_name,
 			None => source.len(),
 		};
-		Ok(Variable {
-			name: std::str::from_utf8(&source[finger + 1..name_end]).unwrap(),
-			name_start: finger + 1,
-			default: None,
-			end_position: name_end,
-		})
+
+		if first_char_after_dollar != '{' {
+			Ok(Self {
+				// Valid names are ASCII, so unwrap() is fine.
+				name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
+				name_start: source_start + name_start,
+				default: None,
+				len: name_end - name_start + 1,
+			})
+		} else {
+			// For braced variables, skip the starting brace for `name_start`.
+			let name_start = name_start + 1;
+			if name_start == name_end {
+				return Err(error::MissingVariableName {
+					position: source_start,
+					len: 2,
+				}
+				.into());
+			}
+
+			// Valid names are ASCII, so unwrap() is fine.
+			let name = std::str::from_utf8(&source[name_start..name_end]).unwrap();
+
+			let after_name = &source[name_end..];
+			match after_name.chars().next() {
+				// If there is a closing brace after the name, there is no default value and we're done.
+				Some('}') => {
+					return Ok(Self {
+						name,
+						name_start: source_start + name_start,
+						default: None,
+						len: name_end - name_start + 3,
+					});
+				}
+				Some(':') => (),
+				// If there is something other than a closing brace or colon after the name, it's an error.
+				Some(other) => {
+					return Err(error::UnexpectedCharacter {
+						position: source_start + name_end,
+						character: other,
+						expected: error::ExpectedCharacter {
+							message: "a closing brace ('}') or colon (':')",
+						},
+					}
+					.into());
+				},
+				None => {
+					return Err(error::MissingClosingBrace {
+						position: source_start + 1,
+					}
+					.into());
+				},
+			}
+
+			// If there is no un-escaped closing brace, it's missing.
+			let default_end = name_end
+				+ find_non_escaped(b'}', after_name).ok_or(error::MissingClosingBrace {
+					position: source_start + 1,
+				})?;
+
+			Ok(Self {
+				name,
+				name_start: source_start + name_start,
+				default: Some(source[name_end + 1..default_end].into()),
+				len: default_end - name_start + 3,
+			})
+		}
 	}
-}
-
-/// Parse a braced variable in the form of "${name[:default]} from source at the given position.
-///
-/// The finger must be the position of the dollar sign in the source.
-fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
-	let name_start = finger + 2;
-	if name_start >= source.len() {
-		return Err(error::MissingVariableName {
-			position: finger,
-			len: 2,
-		}.into())
-	}
-
-	// Get the first sequence of alphanumeric characters and underscores for the variable name.
-	let name_end = match source[name_start..].iter().position(|&c| !c.is_ascii_alphanumeric() && c != b'_') {
-		Some(0) => return Err(error::MissingVariableName {
-			position: finger,
-			len: 2,
-		}.into()),
-		Some(x) => name_start + x,
-		None => source.len(),
-	};
-
-	// If the name extends to the end, we're missing a closing brace.
-	if name_end == source.len() {
-		return Err(error::MissingClosingBrace {
-			position: finger + 1,
-		}.into())
-	}
-
-	// If there is a closing brace after the name, there is no default value and we're done.
-	if source[name_end] == b'}' {
-		return Ok(Variable {
-			name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
-			name_start,
-			default: None,
-			end_position: name_end + 1,
-		});
-
-	// If there is something other than a closing brace or colon after the name, it's an error.
-	} else if source[name_end] != b':' {
-		return Err(error::UnexpectedCharacter {
-			position: name_end,
-			character: source[name_end],
-			expected: error::ExpectedCharacter { message: "a closing brace ('}') or colon (':')" },
-		}.into());
-	}
-
-	// If there is no un-escaped closing brace, it's missing.
-	let end = finger + find_non_escaped(b'}', &source[finger..])
-		.ok_or(error::MissingClosingBrace {
-			position: finger + 1,
-		})?;
-
-	Ok(Variable {
-		name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
-		name_start,
-		default: Some(name_end + 1..end),
-		end_position: end + 1,
-	})
 }
 
 /// Find the first non-escaped occurrence of a character.
@@ -269,7 +288,7 @@ fn find_non_escaped(needle: u8, haystack: &[u8]) -> Option<usize> {
 			}
 			finger += candidate + 2;
 		} else {
-			return Some(finger + candidate)
+			return Some(finger + candidate);
 		}
 	}
 	None
@@ -277,28 +296,38 @@ fn find_non_escaped(needle: u8, haystack: &[u8]) -> Option<usize> {
 
 /// Unescape a single escape sequence in source at the given position.
 ///
-/// The `position` must point to the backslash character in the source text.
+/// `source_start` is used for diagnostic purposes and
+/// should be the position of the backslash in the original input.
 ///
 /// Only valid escape sequences ('\$' '\{' '\}' and '\:') are accepted.
 /// Invalid escape sequences cause an error to be returned.
-fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
-	if position == source.len() - 1 {
-		return Err(error::InvalidEscapeSequence {
-			position,
-			character: None,
-		}.into())
-	}
-	match source[position + 1] {
-		b'\\' => Ok(b'\\'),
-		b'$' => Ok(b'$'),
-		b'{' => Ok(b'{'),
-		b'}' => Ok(b'}'),
-		b':' => Ok(b':'),
-		other => Err(error::InvalidEscapeSequence {
-			position,
+fn unescape_one(source: &[u8], source_start: usize) -> Result<char, Error> {
+	let mut chars = source.chars();
+	let _backslash = chars.next();
+	debug_assert_eq!(_backslash, Some('\\'));
+
+	match chars.next() {
+		Some('\\') => Ok('\\'),
+		Some('$') => Ok('$'),
+		Some('{') => Ok('{'),
+		Some('}') => Ok('}'),
+		Some(':') => Ok(':'),
+		Some(other) => Err(error::InvalidEscapeSequence {
+			position: source_start,
 			character: Some(other),
-		}.into())
+		}
+		.into()),
+		None => Err(error::InvalidEscapeSequence {
+			position: source_start,
+			character: None,
+		}
+		.into()),
 	}
+}
+
+/// Variable names consist of alphanumeric characters and underscores.
+fn is_valid_name(c: char) -> bool {
+	c.is_ascii_alphanumeric() || c == '_'
 }
 
 #[cfg(test)]
@@ -349,27 +378,36 @@ mod test {
 		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${not_name:world}!", &map).as_deref());
 
 		let mut map: BTreeMap<&str, &[u8]> = BTreeMap::new();
-		map.insert("name", b"world");
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello $name!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name}!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name:not-world}!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${not_name:world}!", &map).as_deref());
+		map.insert("name", b"\x87");
+		check!(let Ok(b"Hello \x87!") = substitute_bytes(b"Hello $name!", &map).as_deref());
+		check!(let Ok(b"Hello \x87!") = substitute_bytes(b"Hello ${name}!", &map).as_deref());
+		check!(let Ok(b"Hello \x87!") = substitute_bytes(b"Hello ${name:not-world}!", &map).as_deref());
+		check!(let Ok(b"Hello \x9F!") = substitute_bytes(b"Hello ${not_name:\x9F}!", &map).as_deref());
 	}
 
 	#[test]
+	#[rustfmt::skip]
 	fn test_invalid_escape_sequence() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = br"Hello \world!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello \world!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Invalid escape sequence: \w");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello \world!", "\n",
 				r"        ^^", "\n",
 		));
 
-		let source = br"Hello world!\";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello \❤❤";
+		let_assert!(Err(e) = substitute(source, &map));
+		assert!(e.to_string() == r"Invalid escape sequence: \❤");
+		assert!(e.source_highlighting(source) == concat!(
+				r"  Hello \❤❤", "\n",
+				r"        ^^", "\n",
+		));
+
+		let source = r"Hello world!\";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Invalid escape sequence: missing escape character");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello world!\", "\n",
@@ -378,69 +416,84 @@ mod test {
 	}
 
 	#[test]
+	#[rustfmt::skip]
 	fn test_missing_variable_name() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = br"Hello $!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello $!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Missing variable name");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello $!", "\n",
 				r"        ^", "\n",
 		));
 
-		let source = br"Hello ${}!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello ${}!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Missing variable name");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello ${}!", "\n",
 				r"        ^^", "\n",
 		));
 
-		let source = br"Hello ${:fallback}!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = r"Hello ${:fallback}!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Missing variable name");
 		assert!(e.source_highlighting(source) == concat!(
 				r"  Hello ${:fallback}!", "\n",
 				r"        ^^", "\n",
 		));
+
+		let source = r"Hello 　$❤";
+		let_assert!(Err(e) = substitute(source, &map));
+		assert!(e.to_string() == r"Missing variable name");
+		assert!(e.source_highlighting(source) == concat!(
+				r"  Hello 　$❤", "\n",
+				r"          ^", "\n",
+		));
 	}
 
 	#[test]
+	#[rustfmt::skip]
 	fn test_unexpected_character() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = b"Hello ${name)!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name)!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "Unexpected character: ')', expected a closing brace ('}') or colon (':')");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name)!\n",
 				"              ^\n",
 		));
 
-		let source = b"Hello $name!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
-		assert!(e.to_string() == "No such variable: $name");
+		let source = "Hello ${name❤";
+		let_assert!(Err(e) = substitute(source, &map));
+		assert!(e.to_string() == "Unexpected character: '❤', expected a closing brace ('}') or colon (':')");
 		assert!(e.source_highlighting(source) == concat!(
-				"  Hello $name!\n",
-				"         ^^^^\n",
+				"  Hello ${name❤\n",
+				"              ^\n",
 		));
+
+		let source = b"\xE2\x98Hello ${name\xE2\x98";
+		let_assert!(Err(e) = substitute_bytes(source, &map));
+		assert!(e.to_string() == "Unexpected character: '�', expected a closing brace ('}') or colon (':')");
 	}
 
 	#[test]
+	#[rustfmt::skip]
 	fn test_missing_closing_brace() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = b"Hello ${name";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "Missing closing brace");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name\n",
 				"         ^\n",
 		));
 
-		let source = b"Hello ${name:fallback";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name:fallback";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "Missing closing brace");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name:fallback\n",
@@ -449,19 +502,20 @@ mod test {
 	}
 
 	#[test]
+	#[rustfmt::skip]
 	fn test_substitute_no_such_variable() {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
-		let source = b"Hello ${name}!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello ${name}!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "No such variable: $name");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello ${name}!\n",
 				"          ^^^^\n",
 		));
 
-		let source = b"Hello $name!";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let source = "Hello $name!";
+		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == "No such variable: $name");
 		assert!(e.source_highlighting(source) == concat!(
 				"  Hello $name!\n",

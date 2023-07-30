@@ -73,8 +73,8 @@ pub struct InvalidEscapeSequence {
 	/// This points to the associated backslash character in the source text.
 	pub position: usize,
 
-	/// The byte value of the invalid escape sequence.
-	pub character: Option<u8>,
+	/// The character of the invalid escape sequence.
+	pub character: Option<char>,
 }
 
 impl std::error::Error for InvalidEscapeSequence {}
@@ -82,7 +82,7 @@ impl std::error::Error for InvalidEscapeSequence {}
 impl std::fmt::Display for InvalidEscapeSequence {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		if let Some(c) = self.character {
-			write!(f, "Invalid escape sequence: \\{}", char::from(c))
+			write!(f, "Invalid escape sequence: \\{}", c)
 		} else {
 			write!(f, "Invalid escape sequence: missing escape character")
 		}
@@ -119,11 +119,8 @@ pub struct UnexpectedCharacter {
 	/// This points to the unexpected character in the input text.
 	pub position: usize,
 
-	/// The byte value of the unexpected character.
-	///
-	/// For multi-byte UTF-8 sequences, this only gives the value of the start byte.
-	/// You can use the `position` to get the full UTF-8 sequence from the original input string.
-	pub character: u8,
+	/// The unexpected character.
+	pub character: char,
 
 	/// A human readable message about what was expected instead.
 	pub expected: ExpectedCharacter,
@@ -133,7 +130,7 @@ impl std::error::Error for UnexpectedCharacter {}
 
 impl std::fmt::Display for UnexpectedCharacter {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		write!(f, "Unexpected character: {:?}, expected {}", char::from(self.character), self.expected.message())
+		write!(f, "Unexpected character: {:?}, expected {}", self.character, self.expected.message())
 	}
 }
 
@@ -196,17 +193,13 @@ impl Error {
 	pub fn source_range(&self) -> std::ops::Range<usize> {
 		let (start, len) = match &self {
 			Self::InvalidEscapeSequence(e) => {
-				if e.character.is_some() {
-					(e.position, 2)
-				} else {
-					(e.position, 1)
-				}
+				(e.position, 1 + e.character.map_or(0, |c| c.len_utf8()))
 			},
 			Self::MissingVariableName(e) => {
 				(e.position, e.len)
 			},
 			Self::UnexpectedCharacter(e) => {
-				(e.position, 1)
+				(e.position, e.character.len_utf8())
 			},
 			Self::MissingClosingBrace(e) => {
 				(e.position, 1)
@@ -238,15 +231,12 @@ impl Error {
 	///
 	/// Note: this function doesn't print anything if the source line exceeds 60 characters in width.
 	/// For more control over this behaviour, consider using [`Self::source_range()`] and [`Self::source_line()`] instead.
-	pub fn write_source_highlighting(&self, f: &mut impl std::fmt::Write, source: &[u8]) -> std::fmt::Result {
+	pub fn write_source_highlighting(&self, f: &mut impl std::fmt::Write, source: &str) -> std::fmt::Result {
 		use unicode_width::UnicodeWidthStr;
 
 		let range = self.source_range();
-		let line = self.source_line(source);
-		let line = match std::str::from_utf8(line) {
-			Ok(line) => line,
-			Err(_) => return Err(std::fmt::Error),
-		};
+		let line = self.source_line(source.as_bytes());
+		let line = std::str::from_utf8(line).expect("source_line(valid UTF-8) returned invalid UTF-8, this is a bug");
 		if line.width() > 60 {
 			return Ok(())
 		}
@@ -258,7 +248,9 @@ impl Error {
 	/// Get source highlighting for the error location as a string.
 	///
 	/// The highlighting ends with a newline.
-	pub fn source_highlighting(&self, source: &[u8]) -> String {
+	///
+	/// Note: this function returns an empty string if the source line exceeds 60 characters in width.
+	pub fn source_highlighting(&self, source: &str) -> String {
 		let mut output = String::new();
 		self.write_source_highlighting(&mut output, source).unwrap();
 		output
