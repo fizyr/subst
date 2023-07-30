@@ -21,30 +21,35 @@ pub enum Error {
 }
 
 impl From<InvalidEscapeSequence> for Error {
+	#[inline]
 	fn from(other: InvalidEscapeSequence) -> Self {
 		Self::InvalidEscapeSequence(other)
 	}
 }
 
 impl From<MissingVariableName> for Error {
+	#[inline]
 	fn from(other: MissingVariableName) -> Self {
 		Self::MissingVariableName(other)
 	}
 }
 
 impl From<UnexpectedCharacter> for Error {
+	#[inline]
 	fn from(other: UnexpectedCharacter) -> Self {
 		Self::UnexpectedCharacter(other)
 	}
 }
 
 impl From<MissingClosingBrace> for Error {
+	#[inline]
 	fn from(other: MissingClosingBrace) -> Self {
 		Self::MissingClosingBrace(other)
 	}
 }
 
 impl From<NoSuchVariable> for Error {
+	#[inline]
 	fn from(other: NoSuchVariable) -> Self {
 		Self::NoSuchVariable(other)
 	}
@@ -53,6 +58,7 @@ impl From<NoSuchVariable> for Error {
 impl std::error::Error for Error {}
 
 impl std::fmt::Display for Error {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		match self {
 			Self::InvalidEscapeSequence(e) => e.fmt(f),
@@ -83,6 +89,7 @@ pub struct InvalidEscapeSequence {
 impl std::error::Error for InvalidEscapeSequence {}
 
 impl std::fmt::Display for InvalidEscapeSequence {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		if let Some(c) = self.character {
 			if let Some(c) = char::from_u32(c) {
@@ -112,6 +119,7 @@ pub struct MissingVariableName {
 impl std::error::Error for MissingVariableName {}
 
 impl std::fmt::Display for MissingVariableName {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		write!(f, "Missing variable name")
 	}
@@ -139,6 +147,7 @@ pub struct UnexpectedCharacter {
 impl std::error::Error for UnexpectedCharacter {}
 
 impl std::fmt::Display for UnexpectedCharacter {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		if let Some(character) = char::from_u32(self.character) {
 			write!(f, "Unexpected character: {:?}, expected {}", character, self.expected.message())
@@ -176,6 +185,7 @@ pub struct MissingClosingBrace {
 impl std::error::Error for MissingClosingBrace {}
 
 impl std::fmt::Display for MissingClosingBrace {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		write!(f, "Missing closing brace")
 	}
@@ -197,6 +207,7 @@ pub struct NoSuchVariable {
 impl std::error::Error for NoSuchVariable {}
 
 impl std::fmt::Display for NoSuchVariable {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		write!(f, "No such variable: ${}", self.name)
 	}
@@ -273,6 +284,9 @@ impl Error {
 	/// Get source highlighting for the error location as a string.
 	///
 	/// The highlighting ends with a newline.
+	///
+	/// Note: this function returns an empty string if the source line exceeds 60 characters in width.
+	#[inline]
 	pub fn source_highlighting(&self, source: &str) -> String {
 		let mut output = String::new();
 		self.write_source_highlighting(&mut output, source).unwrap();
