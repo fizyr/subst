@@ -57,12 +57,14 @@ pub enum Error {
 }
 
 impl From<serde_yaml::Error> for Error {
+	#[inline]
 	fn from(other: serde_yaml::Error) -> Self {
 		Self::Yaml(other)
 	}
 }
 
 impl From<crate::Error> for Error {
+	#[inline]
 	fn from(other: crate::Error) -> Self {
 		Self::Subst(other)
 	}
@@ -71,6 +73,7 @@ impl From<crate::Error> for Error {
 impl std::error::Error for Error {}
 
 impl std::fmt::Display for Error {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
 			Error::Yaml(e) => std::fmt::Display::fmt(e, f),
