@@ -70,6 +70,59 @@ impl std::fmt::Display for Error {
 	}
 }
 
+/// A character or byte from the input.
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum CharOrByte {
+	/// A unicode character.
+	Char(char),
+
+	/// A byte value.
+	Byte(u8),
+}
+
+impl CharOrByte {
+	/// Get the byte length of the character in the source.
+	///
+	/// For [`Self::Char`], this returns the UTF-8 lengths of the character.
+	/// For [`Self::Byte`], this is always returns 1.
+	fn source_len(&self) -> usize {
+		match self {
+			Self::Char(c) => c.len_utf8(),
+			Self::Byte(_) => 1,
+		}
+	}
+}
+
+impl std::fmt::Debug for CharOrByte {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match *self {
+			Self::Char(value) => write!(f, "{value:?}"),
+			Self::Byte(value) => {
+				if value.is_ascii() {
+					write!(f, "{:?}", char::from(value))
+				} else {
+					write!(f, "0x{value:02X}")
+				}
+			},
+		}
+	}
+}
+
+impl std::fmt::Display for CharOrByte {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		match *self {
+			Self::Char(value) => write!(f, "{value}"),
+			Self::Byte(value) => {
+				if value.is_ascii() {
+					write!(f, "{}", char::from(value))
+				} else {
+					write!(f, "0x{value:02X}")
+				}
+			},
+		}
+	}
+}
+
 /// The input string contains an invalid escape sequence.
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(Eq, PartialEq))]
@@ -83,7 +136,7 @@ pub struct InvalidEscapeSequence {
 	///
 	/// If the unexpected character is not a valid UTF-8 sequence,
 	/// this will simply hold the value of the first byte after the backslash character.
-	pub character: Option<u32>,
+	pub character: Option<CharOrByte>,
 }
 
 impl std::error::Error for InvalidEscapeSequence {}
@@ -92,11 +145,7 @@ impl std::fmt::Display for InvalidEscapeSequence {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		if let Some(c) = self.character {
-			if let Some(c) = char::from_u32(c) {
-				write!(f, "Invalid escape sequence: \\{}", c)
-			} else {
-				write!(f, "Invalid escape sequence: \\0x{:02X}", c)
-			}
+			write!(f, "Invalid escape sequence: \\{}", c)
 		} else {
 			write!(f, "Invalid escape sequence: missing escape character")
 		}
@@ -138,7 +187,7 @@ pub struct UnexpectedCharacter {
 	///
 	/// If the unexpected character is not a valid UTF-8 sequence,
 	/// this will simply hold the value of the unexpected byte.
-	pub character: u32,
+	pub character: CharOrByte,
 
 	/// A human readable message about what was expected instead.
 	pub expected: ExpectedCharacter,
@@ -149,11 +198,7 @@ impl std::error::Error for UnexpectedCharacter {}
 impl std::fmt::Display for UnexpectedCharacter {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		if let Some(character) = char::from_u32(self.character) {
-			write!(f, "Unexpected character: {:?}, expected {}", character, self.expected.message())
-		} else {
-			write!(f, "Unexpected character: 0x{:02X}, expected {}", self.character, self.expected.message())
-		}
+		write!(f, "Unexpected character: {:?}, expected {}", self.character, self.expected.message())
 	}
 }
 
@@ -213,30 +258,19 @@ impl std::fmt::Display for NoSuchVariable {
 	}
 }
 
-fn first_char_byte_len(data: &str) -> usize {
-	if let Some((position, _char)) = data.char_indices().nth(1) {
-		position
-	} else {
-		data.len()
-	}
-}
-
 impl Error {
 	/// Get the range in the source text that contains the error.
-	pub fn source_range(&self, source: &str) -> std::ops::Range<usize> {
+	pub fn source_range(&self) -> std::ops::Range<usize> {
 		let (start, len) = match &self {
 			Self::InvalidEscapeSequence(e) => {
-				if e.character.is_some() {
-					(e.position, 1 + first_char_byte_len(&source[e.position + 1..]))
-				} else {
-					(e.position, 1)
-				}
+				let char_len = e.character.map(|x| x.source_len()).unwrap_or(0);
+				(e.position, 1 + char_len)
 			},
 			Self::MissingVariableName(e) => {
 				(e.position, e.len)
 			},
 			Self::UnexpectedCharacter(e) => {
-				(e.position, 1)
+				(e.position, e.character.source_len())
 			},
 			Self::MissingClosingBrace(e) => {
 				(e.position, 1)
@@ -256,7 +290,7 @@ impl Error {
 	/// # Panics
 	/// May panic if the source text is not the original source that contains the error.
 	pub fn source_line<'a>(&self, source: &'a str) -> &'a str {
-		let position = self.source_range(source).start;
+		let position = self.source_range().start;
 		let start = line_start(source, position);
 		let end = line_end(source, position);
 		&source[start..end]
@@ -271,7 +305,7 @@ impl Error {
 	pub fn write_source_highlighting(&self, f: &mut impl std::fmt::Write, source: &str) -> std::fmt::Result {
 		use unicode_width::UnicodeWidthStr;
 
-		let range = self.source_range(source);
+		let range = self.source_range();
 		let line = self.source_line(source);
 		if line.width() > 60 {
 			return Ok(())

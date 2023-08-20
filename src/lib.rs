@@ -258,15 +258,15 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 	})
 }
 
-fn get_maybe_char_at(data: &[u8], index: usize) -> u32 {
+fn get_maybe_char_at(data: &[u8], index: usize) -> error::CharOrByte {
 	if let Ok(string) = std::str::from_utf8(data) {
 		if string.is_char_boundary(index) {
 			if let Some(c) = string[index..].chars().next() {
-				return c.into()
+				return error::CharOrByte::Char(c);
 			}
 		}
 	}
-	data[index].into()
+	error::CharOrByte::Byte(data[index])
 }
 
 /// Find the first non-escaped occurrence of a character.
@@ -455,7 +455,7 @@ mod test {
 
 		let source = b"\xE2\x98Hello ${name\xE2\x98";
 		let_assert!(Err(e) = substitute_bytes(source, &map));
-		assert!(e.to_string() == "Unexpected character: '�', expected a closing brace ('}') or colon (':')");
+		assert!(e.to_string() == "Unexpected character: 0xE2, expected a closing brace ('}') or colon (':')");
 	}
 
 	#[test]
