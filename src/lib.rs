@@ -258,15 +258,33 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 	})
 }
 
+/// Get the prefix from the input that is valid UTF-8 as [`str`].
+///
+/// If the whole input is valid UTF-8, the whole input is returned.
+/// If the first byte is already invalid UTF-8, an empty string is returned.
+fn valid_utf8_prefix(input: &[u8]) -> &str {
+	// The unwrap can not panic: we used `e.valid_up_to()` to get the valid UTF-8 slice.
+	std::str::from_utf8(input)
+		.or_else(|e| std::str::from_utf8(&input[..e.valid_up_to()]))
+		.unwrap()
+}
+
+/// Get the character at a given index.
+///
+/// If the data at the given index contains a valid UTF-8 sequence,
+/// returns a [`error::CharOrByte::Char`].
+/// Otherwise, returns a [`error::CharOrByte::Byte`].
 fn get_maybe_char_at(data: &[u8], index: usize) -> error::CharOrByte {
-	if let Ok(string) = std::str::from_utf8(data) {
-		if string.is_char_boundary(index) {
-			if let Some(c) = string[index..].chars().next() {
-				return error::CharOrByte::Char(c);
-			}
-		}
+	let head = &data[index..];
+	let head = &head[..head.len().min(4)];
+	assert!(!head.is_empty(), "index out of bounds: data.len() is {} but index is {}", data.len(), index);
+
+	let head = valid_utf8_prefix(head);
+	if let Some(c) = head.chars().next() {
+		error::CharOrByte::Char(c)
+	} else {
+		error::CharOrByte::Byte(data[index])
 	}
-	error::CharOrByte::Byte(data[index])
 }
 
 /// Find the first non-escaped occurrence of a character.
@@ -317,6 +335,31 @@ mod test {
 	use std::collections::BTreeMap;
 	use assert2::{assert, check, let_assert};
 	use super::*;
+
+	#[test]
+	fn test_get_maybe_char_at() {
+		use error::CharOrByte::{Char, Byte};
+		assert!(get_maybe_char_at(b"hello", 0) == Char('h'));
+		assert!(get_maybe_char_at(b"he", 0) == Char('h'));
+		assert!(get_maybe_char_at(b"hello", 1) == Char('e'));
+		assert!(get_maybe_char_at(b"he", 1) == Char('e'));
+		assert!(get_maybe_char_at(b"hello\x80", 1) == Char('e'));
+		assert!(get_maybe_char_at(b"he\x80llo\x80", 1) == Char('e'));
+
+		assert!(get_maybe_char_at(b"h\x79", 1) == Char('\x79'));
+		assert!(get_maybe_char_at(b"h\x80llo", 1) == Byte(0x80));
+
+		// The UTF-8 sequence for '❤' is [0xE2, 0x9D, 0xA4]".
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 0) == Char('h'));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 1) == Char('❤'));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 2) == Byte(0x9d));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 3) == Byte(0xA4));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 4) == Char('l'));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 5) == Char('l'));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 6) == Char('❤'));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 7) == Byte(0x9d));
+		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 8) == Byte(0xA4));
+	}
 
 	#[test]
 	fn test_find_non_escaped() {

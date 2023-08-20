@@ -71,7 +71,7 @@ impl std::fmt::Display for Error {
 }
 
 /// A character or byte from the input.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum CharOrByte {
 	/// A unicode character.
 	Char(char),
@@ -85,26 +85,41 @@ impl CharOrByte {
 	///
 	/// For [`Self::Char`], this returns the UTF-8 lengths of the character.
 	/// For [`Self::Byte`], this is always returns 1.
-	fn source_len(&self) -> usize {
+	pub fn source_len(&self) -> usize {
 		match self {
 			Self::Char(c) => c.len_utf8(),
 			Self::Byte(_) => 1,
 		}
 	}
-}
 
-impl std::fmt::Debug for CharOrByte {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		match *self {
-			Self::Char(value) => write!(f, "{value:?}"),
-			Self::Byte(value) => {
-				if value.is_ascii() {
-					write!(f, "{:?}", char::from(value))
-				} else {
-					write!(f, "0x{value:02X}")
-				}
-			},
+	/// Return a printable version of `self` for error messages.
+	///
+	/// The returned value implements `Display` and will print [`Self::Char`] as a quoted character,
+	/// possibly with a rust-style escape sequence.
+	///
+	/// [`Self::Byte`] is printed as zero-padded hexadecimal value, for example as `0x8E`.
+	pub fn as_quoted_printable(&self) -> impl std::fmt::Display {
+		#[derive(Copy, Clone, Debug)]
+		struct QuotedPrintable {
+			inner: CharOrByte,
 		}
+
+		impl std::fmt::Display for QuotedPrintable {
+			fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+				match self.inner {
+					CharOrByte::Char(value) => write!(f, "{value:?}"),
+					CharOrByte::Byte(value) => {
+						if value.is_ascii() {
+							write!(f, "{:?}", char::from(value))
+						} else {
+							write!(f, "0x{value:02X}")
+						}
+					},
+				}
+			}
+		}
+
+		QuotedPrintable { inner: *self }
 	}
 }
 
@@ -198,7 +213,7 @@ impl std::error::Error for UnexpectedCharacter {}
 impl std::fmt::Display for UnexpectedCharacter {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		write!(f, "Unexpected character: {:?}, expected {}", self.character, self.expected.message())
+		write!(f, "Unexpected character: {}, expected {}", self.character.as_quoted_printable(), self.expected.message())
 	}
 }
 
