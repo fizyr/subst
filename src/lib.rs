@@ -379,6 +379,14 @@ mod test {
 				r"        ^^", "\n",
 		));
 
+		let source = r"Hello \❤❤";
+		let_assert!(Err(e) = substitute(source, &map));
+		assert!(e.to_string() == r"Invalid escape sequence: \❤");
+		assert!(e.source_highlighting(source) == concat!(
+				r"  Hello \❤❤", "\n",
+				r"        ^^", "\n",
+		));
+
 		let source = r"Hello world!\";
 		let_assert!(Err(e) = substitute(source, &map));
 		assert!(e.to_string() == r"Invalid escape sequence: missing escape character");
@@ -415,6 +423,14 @@ mod test {
 				r"  Hello ${:fallback}!", "\n",
 				r"        ^^", "\n",
 		));
+
+		let source = r"Hello 　$❤";
+		let_assert!(Err(e) = substitute(source, &map));
+		assert!(e.to_string() == r"Missing variable name");
+		assert!(e.source_highlighting(source) == concat!(
+				r"  Hello 　$❤", "\n",
+				r"          ^", "\n",
+		));
 	}
 
 	#[test]
@@ -429,13 +445,17 @@ mod test {
 				"              ^\n",
 		));
 
-		let source = "Hello $name!";
+		let source = "Hello ${name❤";
 		let_assert!(Err(e) = substitute(source, &map));
-		assert!(e.to_string() == "No such variable: $name");
+		assert!(e.to_string() == "Unexpected character: '❤', expected a closing brace ('}') or colon (':')");
 		assert!(e.source_highlighting(source) == concat!(
-				"  Hello $name!\n",
-				"         ^^^^\n",
+				"  Hello ${name❤\n",
+				"              ^\n",
 		));
+
+		let source = b"\xE2\x98Hello ${name\xE2\x98";
+		let_assert!(Err(e) = substitute_bytes(source, &map));
+		assert!(e.to_string() == "Unexpected character: '�', expected a closing brace ('}') or colon (':')");
 	}
 
 	#[test]
