@@ -151,6 +151,8 @@ pub struct InvalidEscapeSequence {
 	///
 	/// If the unexpected character is not a valid UTF-8 sequence,
 	/// this will simply hold the value of the first byte after the backslash character.
+	///
+	/// If a backslash character occurs at the end of the input, this field is set to `None`.
 	pub character: Option<CharOrByte>,
 }
 
