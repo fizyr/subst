@@ -10,7 +10,7 @@ pub trait VariableMap<'a> {
 	fn get(&'a self, key: &str) -> Option<Self::Value>;
 }
 
-/// A map performs no substitution at all.
+/// A "map" that never returns any values.
 #[derive(Debug)]
 pub struct NoSubstitution;
 
@@ -23,7 +23,7 @@ impl<'a> VariableMap<'a> for NoSubstitution {
 	}
 }
 
-/// Value returned by the `NoSubstitution` map.
+/// Value returned by the [`NoSubstitution`] map.
 #[derive(Debug)]
 pub enum NeverValue {}
 
