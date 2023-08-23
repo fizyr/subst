@@ -95,11 +95,8 @@ impl CharOrByte {
 
 	/// Return a printable version of `self` for error messages.
 	///
-	/// The returned value implements `Display` and will print [`Self::Char`] as a quoted character,
-	/// possibly with a rust-style escape sequence.
-	///
-	/// [`Self::Byte`] is printed as zero-padded hexadecimal value, for example as `0x8E`.
-	pub fn as_quoted_printable(&self) -> impl std::fmt::Display {
+	/// The returned value implements `Display` and is suitable for inclusion in error messages.
+	pub fn quoted_printable(&self) -> impl std::fmt::Display {
 		#[derive(Copy, Clone, Debug)]
 		struct QuotedPrintable {
 			inner: CharOrByte,
@@ -114,7 +111,7 @@ impl CharOrByte {
 						if value.is_ascii() {
 							write!(f, "{:?}", char::from(value))
 						} else {
-							write!(f, "0x{value:02X}")
+							write!(f, "'\\x{value:02X}'")
 						}
 					},
 				}
@@ -216,7 +213,7 @@ impl std::error::Error for UnexpectedCharacter {}
 impl std::fmt::Display for UnexpectedCharacter {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		write!(f, "Unexpected character: {}, expected {}", self.character.as_quoted_printable(), self.expected.message())
+		write!(f, "Unexpected character: {}, expected {}", self.character.quoted_printable(), self.expected.message())
 	}
 }
 
@@ -371,4 +368,20 @@ fn write_underline(f: &mut impl std::fmt::Write, line: &str, range: std::ops::Ra
 	write!(f, "{}", " ".repeat(spaces))?;
 	write!(f, "{}", "^".repeat(carets))?;
 	Ok(())
+}
+
+#[cfg(test)]
+mod test {
+	use assert2::check;
+
+	#[test]
+	fn test_char_or_byte_quoated_printable() {
+		use super::CharOrByte::{Byte, Char};
+		check!(Byte(0x81).quoted_printable().to_string() == r"'\x81'");
+		check!(Byte(0x79).quoted_printable().to_string() == r"'y'");
+		check!(Char('\x79').quoted_printable().to_string() == r"'y'");
+
+		check!(Byte(0).quoted_printable().to_string() == r"'\0'");
+		check!(Char('\0').quoted_printable().to_string() == r"'\0'");
+	}
 }

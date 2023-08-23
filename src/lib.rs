@@ -498,7 +498,7 @@ mod test {
 
 		let source = b"\xE2\x98Hello ${name\xE2\x98";
 		let_assert!(Err(e) = substitute_bytes(source, &map));
-		assert!(e.to_string() == "Unexpected character: 0xE2, expected a closing brace ('}') or colon (':')");
+		assert!(e.to_string() == "Unexpected character: '\\xE2', expected a closing brace ('}') or colon (':')");
 	}
 
 	#[test]
