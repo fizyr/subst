@@ -85,6 +85,7 @@ impl CharOrByte {
 	///
 	/// For [`Self::Char`], this returns the UTF-8 lengths of the character.
 	/// For [`Self::Byte`], this is always returns 1.
+	#[inline]
 	pub fn source_len(&self) -> usize {
 		match self {
 			Self::Char(c) => c.len_utf8(),
@@ -105,6 +106,7 @@ impl CharOrByte {
 		}
 
 		impl std::fmt::Display for QuotedPrintable {
+			#[inline]
 			fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 				match self.inner {
 					CharOrByte::Char(value) => write!(f, "{value:?}"),
@@ -124,6 +126,7 @@ impl CharOrByte {
 }
 
 impl std::fmt::Display for CharOrByte {
+	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match *self {
 			Self::Char(value) => write!(f, "{value}"),
@@ -227,6 +230,7 @@ pub struct ExpectedCharacter {
 
 impl ExpectedCharacter {
 	/// Get a human readable message to describe what was expected.
+	#[inline]
 	pub fn message(&self) -> &str {
 		self.message
 	}
@@ -275,6 +279,7 @@ impl std::fmt::Display for NoSuchVariable {
 
 impl Error {
 	/// Get the range in the source text that contains the error.
+	#[inline]
 	pub fn source_range(&self) -> std::ops::Range<usize> {
 		let (start, len) = match &self {
 			Self::InvalidEscapeSequence(e) => {
@@ -304,6 +309,7 @@ impl Error {
 	///
 	/// # Panics
 	/// May panic if the source text is not the original source that contains the error.
+	#[inline]
 	pub fn source_line<'a>(&self, source: &'a str) -> &'a str {
 		let position = self.source_range().start;
 		let start = line_start(source, position);
@@ -317,6 +323,7 @@ impl Error {
 	///
 	/// Note: this function doesn't print anything if the source line exceeds 60 characters in width.
 	/// For more control over this behaviour, consider using [`Self::source_range()`] and [`Self::source_line()`] instead.
+	#[inline]
 	pub fn write_source_highlighting(&self, f: &mut impl std::fmt::Write, source: &str) -> std::fmt::Result {
 		use unicode_width::UnicodeWidthStr;
 
