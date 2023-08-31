@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.3.0 - 2023-08-31
 - [add][minor] Expose error details publically.
 - [fix][minor] Fix panic when processing multibyte UTF-8 escape sequence.
 - [change][major] Require a valid UTF-8 `&str` for `Error::print_source_highlighting()`.
