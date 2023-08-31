@@ -10,23 +10,25 @@ pub trait VariableMap<'a> {
 	fn get(&'a self, key: &str) -> Option<Self::Value>;
 }
 
-/// A map performs no substitution at all.
+/// A "map" that never returns any values.
 #[derive(Debug)]
 pub struct NoSubstitution;
 
 impl<'a> VariableMap<'a> for NoSubstitution {
 	type Value = NeverValue;
 
+	#[inline]
 	fn get(&'a self, _key: &str) -> Option<Self::Value> {
 		None
 	}
 }
 
-/// Value returned by the `NoSubstitution` map.
+/// Value returned by the [`NoSubstitution`] map.
 #[derive(Debug)]
 pub enum NeverValue {}
 
 impl<T: ?Sized> AsRef<T> for NeverValue {
+	#[inline]
 	fn as_ref(&self) -> &T {
 		match *self {
 		}
@@ -40,6 +42,7 @@ pub struct Env;
 impl<'a> VariableMap<'a> for Env {
 	type Value = String;
 
+	#[inline]
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		std::env::var(key).ok()
 	}
@@ -56,6 +59,7 @@ pub struct EnvBytes;
 impl<'a> VariableMap<'a> for EnvBytes {
 	type Value = Vec<u8>;
 
+	#[inline]
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		use std::os::unix::ffi::OsStringExt;
 		let value = std::env::var_os(key)?;
@@ -66,6 +70,7 @@ impl<'a> VariableMap<'a> for EnvBytes {
 impl<'a, V: 'a> VariableMap<'a> for BTreeMap<&str, V> {
 	type Value = &'a V;
 
+	#[inline]
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		self.get(key)
 	}
@@ -74,6 +79,7 @@ impl<'a, V: 'a> VariableMap<'a> for BTreeMap<&str, V> {
 impl<'a, V: 'a> VariableMap<'a> for BTreeMap<String, V> {
 	type Value = &'a V;
 
+	#[inline]
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		self.get(key)
 	}
@@ -82,6 +88,7 @@ impl<'a, V: 'a> VariableMap<'a> for BTreeMap<String, V> {
 impl<'a, V: 'a, S: BuildHasher> VariableMap<'a> for HashMap<&str, V, S> {
 	type Value = &'a V;
 
+	#[inline]
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		self.get(key)
 	}
@@ -90,6 +97,7 @@ impl<'a, V: 'a, S: BuildHasher> VariableMap<'a> for HashMap<&str, V, S> {
 impl<'a, V: 'a, S: BuildHasher> VariableMap<'a> for HashMap<String, V, S> {
 	type Value = &'a V;
 
+	#[inline]
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		self.get(key)
 	}
