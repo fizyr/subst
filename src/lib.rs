@@ -180,7 +180,9 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 	if source[finger + 1] == b'{' {
 		parse_braced_variable(source, finger)
 	} else {
-		let name_end = match source[finger + 1..].iter().position(|&c| !c.is_ascii_alphanumeric() && c != b'_') {
+		let name_start = finger + 1;
+		check_fist_char_of_variable_name(source, name_start)?;
+		let name_end = match source[name_start..].iter().position(|&c| !c.is_ascii_alphanumeric() && c != b'_') {
 			Some(0) => return Err(error::MissingVariableName {
 				position: finger,
 				len: 1,
@@ -197,6 +199,21 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 	}
 }
 
+fn check_fist_char_of_variable_name(source: &[u8], name_start: usize) -> Result<(), Error> {
+	let first_char = source[name_start];
+	if first_char.is_ascii_digit() {
+		return Err(error::Error::UnexpectedCharacter(error::UnexpectedCharacter{
+			position: name_start,
+			character: error::CharOrByte::Byte(first_char),
+			expected: error::ExpectedCharacter {
+				message: "variable name must not start with 0..9"
+			}
+		}))
+	}
+
+	Ok(())
+}
+
 /// Parse a braced variable in the form of "${name[:default]} from source at the given position.
 ///
 /// The finger must be the position of the dollar sign in the source.
@@ -208,6 +225,8 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 			len: 2,
 		}.into())
 	}
+
+	check_fist_char_of_variable_name(source, name_start)?;
 
 	// Get the first sequence of alphanumeric characters and underscores for the variable name.
 	let name_end = match source[name_start..].iter().position(|&c| !c.is_ascii_alphanumeric() && c != b'_') {
