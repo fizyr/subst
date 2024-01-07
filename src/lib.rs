@@ -216,7 +216,7 @@ fn parse_template<'a>(source: &'a [u8], range: &std::ops::Range<usize>) -> Resul
 	let mut parts = Vec::new();
 	let mut finger = range.start;
 	while let Some(part) = parse_template_one_step(finger, source, range)? {
-		finger = finger + part.size();
+		finger += part.size();
 		parts.push(part);
 	}
 
@@ -253,12 +253,12 @@ where
 	Ok(())
 }
 
-fn expand_template_part_escaped_char<'a>(e: &EscapedCharTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
+fn expand_template_part_escaped_char(e: &EscapedCharTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
 	output.push(e.name);
 	Ok(())
 }
 
-fn expand_template_part_literal<'a>(l: &LiteralTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
+fn expand_template_part_literal(l: &LiteralTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
 	output.extend_from_slice(l.text);
 	Ok(())
 }
