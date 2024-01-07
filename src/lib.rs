@@ -101,7 +101,7 @@ where
 {
 	let template = parse_template(source, &(0..source.len()))?;
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	evaluate_template_impl(&template, &mut output, variables, &|x| x.as_ref())?;
+	expand_template_impl(&template, &mut output, variables, &|x| x.as_ref())?;
 	Ok(output)
 }
 
@@ -204,7 +204,7 @@ impl<'a> Template<'a> {
 		M: VariableMap<'b> + ?Sized,
 		M::Value: AsRef<str>,
 	{
-		expand_template_simple(&self.parts, variables, Some(self.source.len()))
+		expand_template(&self.parts, variables, Some(self.source.len()))
 	}
 }
 
@@ -223,7 +223,7 @@ fn parse_template<'a>(
 	Ok(parts)
 }
 
-fn evaluate_template_part_variable<'a, M, F>(
+fn expand_template_part_variable<'a, M, F>(
 	variable: &Variable,
 	output: &mut Vec<u8>,
 	variables: &'a M,
@@ -246,14 +246,14 @@ where
 				output.extend_from_slice(to_bytes(value));
 			},
 			(None, Some(default)) => {
-			evaluate_template_impl(default, output, variables, to_bytes)?;
+			expand_template_impl(default, output, variables, to_bytes)?;
 			},
 	}
 
 	Ok(())
 }
 
-fn evaluate_template_part_escaped_char<'a>(
+fn expand_template_part_escaped_char<'a>(
 	e: &EscapedCharTemplate,
 	output: &mut Vec<u8>,
 ) -> Result<(), Error>
@@ -262,7 +262,7 @@ fn evaluate_template_part_escaped_char<'a>(
 	Ok(())
 }
 
-fn evaluate_template_part_literal<'a>(
+fn expand_template_part_literal<'a>(
 	l: &LiteralTemplate,
 	output: &mut Vec<u8>,
 ) -> Result<(), Error>
@@ -271,7 +271,7 @@ fn evaluate_template_part_literal<'a>(
 	Ok(())
 }
 
-fn evaluate_template_part<'a, M, F>(
+fn expand_template_part<'a, M, F>(
 	tp: &TemplatePart,
 	output: &mut Vec<u8>,
 	variables: &'a M,
@@ -282,15 +282,15 @@ where
 	F: Fn(&M::Value) -> &[u8],
 {
 	match tp {
-		TemplatePart::Literal(l) => evaluate_template_part_literal(l, output)?,
-		TemplatePart::Variable(v) => evaluate_template_part_variable(v, output, variables, to_bytes)?,
-		TemplatePart::EscapedChar(e) => evaluate_template_part_escaped_char(e, output)?,
+		TemplatePart::Literal(l) => expand_template_part_literal(l, output)?,
+		TemplatePart::Variable(v) => expand_template_part_variable(v, output, variables, to_bytes)?,
+		TemplatePart::EscapedChar(e) => expand_template_part_escaped_char(e, output)?,
 	}
 
 	Ok(())
 }
 
-fn evaluate_template_impl<'a, M, F>(
+fn expand_template_impl<'a, M, F>(
 	t: &Vec<TemplatePart>,
 	output: &mut Vec<u8>,
 	variables: &'a M,
@@ -301,31 +301,31 @@ where
 	F: Fn(&M::Value) -> &[u8],
 {
 	for part in t {
-		evaluate_template_part(part, output, variables, to_bytes)?;
+		expand_template_part(part, output, variables, to_bytes)?;
 	}
 
 	Ok(())
 }
 
 /// takes a template and variable map to generate output
-fn expand_template_simple<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<String, Error>
+fn expand_template<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<String, Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let output = evaluate_template_simple_impl(t, variables, source_size)?;
+	let output = evaluate_template_to_bytes(t, variables, source_size)?;
 	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
 	unsafe { Ok(String::from_utf8_unchecked(output)) }
 }
 
-fn evaluate_template_simple_impl<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<Vec<u8>, Error>
+fn evaluate_template_to_bytes<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<Vec<u8>, Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	let source_size = if let Some(source_size) = source_size { source_size } else {0};
 	let mut output = Vec::with_capacity(source_size + source_size / 10);
-	evaluate_template_impl(t, &mut output, variables, &|x| {
+	expand_template_impl(t, &mut output, variables, &|x| {
 		x.as_ref().as_bytes()
 	})?;
 	Ok(output)
@@ -342,7 +342,7 @@ where
 
 	if let Some(part) = next_part {
 		let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-		evaluate_template_part(&part, &mut output, variables, &|x| {
+		expand_template_part(&part, &mut output, variables, &|x| {
 			x.as_ref().as_bytes()
 		})?;
 		// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
