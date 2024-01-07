@@ -107,14 +107,14 @@ where
 
 #[derive(Debug, PartialEq, Eq)]
 enum TemplatePart<'a> {
-  Literal(LiteralTemplate<'a>),
-  Variable(Variable<'a>),
-  EscapedChar(EscapedCharTemplate),
+	Literal(LiteralTemplate<'a>),
+	Variable(Variable<'a>),
+	EscapedChar(EscapedCharTemplate),
 }
 
 #[derive(Debug, PartialEq, Eq)]
 struct LiteralTemplate<'a> {
-  text: &'a [u8],
+	text: &'a [u8],
 }
 
 trait ByteLength {
@@ -122,27 +122,32 @@ trait ByteLength {
 }
 
 impl<'a> ByteLength for TemplatePart<'a> {
-    fn size(&self) -> usize {
+	fn size(&self) -> usize {
 		match self {
 			Self::Literal(l) => l.size(),
 			Self::Variable(v) => v.size(),
 			Self::EscapedChar(e) => e.size(),
 		}
-    }
+	}
 }
 
 impl<'a> ByteLength for LiteralTemplate<'a> {
-    fn size(&self) -> usize { self.text.len() }
+	fn size(&self) -> usize {
+		self.text.len()
+	}
 }
 
 impl<'a> ByteLength for Variable<'a> {
-    fn size(&self) -> usize { self.part_end - self.part_start }
+	fn size(&self) -> usize {
+		self.part_end - self.part_start
+	}
 }
 
 impl ByteLength for EscapedCharTemplate {
-    fn size(&self) -> usize { 2 }
+	fn size(&self) -> usize {
+		2
+	}
 }
-
 
 #[derive(Debug, PartialEq, Eq)]
 struct EscapedCharTemplate {
@@ -153,8 +158,7 @@ fn parse_template_one_step<'a>(
 	finger: usize,
 	source: &'a [u8],
 	range: &std::ops::Range<usize>,
-) -> Result<Option<TemplatePart<'a>>, Error>
-{
+) -> Result<Option<TemplatePart<'a>>, Error> {
 	if finger >= range.end {
 		return Ok(None); // end of input is reached
 	}
@@ -164,15 +168,17 @@ fn parse_template_one_step<'a>(
 	let part: TemplatePart = match c {
 		b'$' => TemplatePart::Variable(parse_variable(source, finger)?),
 		b'\\' => {
-			let c =  unescape_one(source, finger)?;
+			let c = unescape_one(source, finger)?;
 			TemplatePart::EscapedChar(EscapedCharTemplate { name: c })
-		}
-		_c0 => {
-			match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
-				Some(x) => TemplatePart::Literal(LiteralTemplate { text: &source[finger..finger + x] }),
-				None => TemplatePart::Literal(LiteralTemplate{ text: &source[finger..range.end] })
-			}
-		}
+		},
+		_c0 => match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
+			Some(x) => TemplatePart::Literal(LiteralTemplate {
+				text: &source[finger..finger + x],
+			}),
+			None => TemplatePart::Literal(LiteralTemplate {
+				text: &source[finger..range.end],
+			}),
+		},
 	};
 
 	Ok(Some(part))
@@ -192,9 +198,7 @@ impl<'a> Template<'a> {
 	pub fn parse(source: &'a str) -> Result<Self, Error> {
 		Ok(Self {
 			source: source.as_bytes(),
-			parts: parse_template(
-				source.as_bytes(),
-				&(0..source.len()))?,
+			parts: parse_template(source.as_bytes(), &(0..source.len()))?,
 		})
 	}
 
@@ -208,11 +212,7 @@ impl<'a> Template<'a> {
 	}
 }
 
-fn parse_template<'a>(
-	source: &'a [u8],
-	range: &std::ops::Range<usize>,
-) -> Result<Vec<TemplatePart<'a>>, Error>
-{
+fn parse_template<'a>(source: &'a [u8], range: &std::ops::Range<usize>) -> Result<Vec<TemplatePart<'a>>, Error> {
 	let mut parts = Vec::new();
 	let mut finger = range.start;
 	while let Some(part) = parse_template_one_step(finger, source, range)? {
@@ -233,40 +233,32 @@ where
 	M: VariableMap<'a> + ?Sized,
 	F: Fn(&M::Value) -> &[u8],
 {
-		let value = variables.get(variable.name);
-		match (&value, &variable.default) {
-			(None, None) => {
-				return Err(error::NoSuchVariable {
-					position: variable.name_start,
-					name: variable.name.to_owned(),
-				}
-				.into())
-			},
-			(Some(value), _) => {
-				output.extend_from_slice(to_bytes(value));
-			},
-			(None, Some(default)) => {
+	let value = variables.get(variable.name);
+	match (&value, &variable.default) {
+		(None, None) => {
+			return Err(error::NoSuchVariable {
+				position: variable.name_start,
+				name: variable.name.to_owned(),
+			}
+			.into())
+		},
+		(Some(value), _) => {
+			output.extend_from_slice(to_bytes(value));
+		},
+		(None, Some(default)) => {
 			expand_template_impl(default, output, variables, to_bytes)?;
-			},
+		},
 	}
 
 	Ok(())
 }
 
-fn expand_template_part_escaped_char<'a>(
-	e: &EscapedCharTemplate,
-	output: &mut Vec<u8>,
-) -> Result<(), Error>
-{
+fn expand_template_part_escaped_char<'a>(e: &EscapedCharTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
 	output.push(e.name);
 	Ok(())
 }
 
-fn expand_template_part_literal<'a>(
-	l: &LiteralTemplate,
-	output: &mut Vec<u8>,
-) -> Result<(), Error>
-{
+fn expand_template_part_literal<'a>(l: &LiteralTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
 	output.extend_from_slice(l.text);
 	Ok(())
 }
@@ -318,16 +310,22 @@ where
 	unsafe { Ok(String::from_utf8_unchecked(output)) }
 }
 
-fn evaluate_template_to_bytes<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<Vec<u8>, Error>
+fn evaluate_template_to_bytes<'a, M>(
+	t: &Vec<TemplatePart>,
+	variables: &'a M,
+	source_size: Option<usize>,
+) -> Result<Vec<u8>, Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let source_size = if let Some(source_size) = source_size { source_size } else {0};
+	let source_size = if let Some(source_size) = source_size {
+		source_size
+	} else {
+		0
+	};
 	let mut output = Vec::with_capacity(source_size + source_size / 10);
-	expand_template_impl(t, &mut output, variables, &|x| {
-		x.as_ref().as_bytes()
-	})?;
+	expand_template_impl(t, &mut output, variables, &|x| x.as_ref().as_bytes())?;
 	Ok(output)
 }
 
@@ -337,14 +335,11 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let next_part = parse_template_one_step(
-		0, source.as_bytes(), &(0..source.len()))?;
+	let next_part = parse_template_one_step(0, source.as_bytes(), &(0..source.len()))?;
 
 	if let Some(part) = next_part {
 		let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-		expand_template_part(&part, &mut output, variables, &|x| {
-			x.as_ref().as_bytes()
-		})?;
+		expand_template_part(&part, &mut output, variables, &|x| x.as_ref().as_bytes())?;
 		// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
 		Ok((part.size(), unsafe { String::from_utf8_unchecked(output) }))
 	} else {
@@ -820,12 +815,33 @@ mod test {
 		let source = r"hello $NAME. Nice\$to meet you $NAME.";
 		assert_eq!(substitute_one(source, &variables).unwrap(), (6, "hello ".into()));
 		assert_eq!(substitute_one(&source[6..], &variables).unwrap(), (5, "subst".into()));
-		assert_eq!(substitute_one(&source[6+5..], &variables).unwrap(), (6, ". Nice".into()));
-		assert_eq!(substitute_one(&source[6+5+6..], &variables).unwrap(), (2, "$".into()));
-		assert_eq!(substitute_one(&source[6+5+6+2..], &variables).unwrap(), (12, "to meet you ".into()));
-		assert_eq!(substitute_one(&source[6+5+6+2+12..], &variables).unwrap(), (5, "subst".into()));
-		assert_eq!(substitute_one(&source[6+5+6+2+12+5..], &variables).unwrap(), (1, ".".into()));
-		assert_eq!(substitute_one(&source[6+5+6+2+12+5+1..], &variables).unwrap(), (0, "".into()));
-		assert_eq!(substitute_one(&source[6+5+6+2+12+5+1..], &variables).unwrap(), (0, "".into()));
+		assert_eq!(
+			substitute_one(&source[6 + 5..], &variables).unwrap(),
+			(6, ". Nice".into())
+		);
+		assert_eq!(
+			substitute_one(&source[6 + 5 + 6..], &variables).unwrap(),
+			(2, "$".into())
+		);
+		assert_eq!(
+			substitute_one(&source[6 + 5 + 6 + 2..], &variables).unwrap(),
+			(12, "to meet you ".into())
+		);
+		assert_eq!(
+			substitute_one(&source[6 + 5 + 6 + 2 + 12..], &variables).unwrap(),
+			(5, "subst".into())
+		);
+		assert_eq!(
+			substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5..], &variables).unwrap(),
+			(1, ".".into())
+		);
+		assert_eq!(
+			substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5 + 1..], &variables).unwrap(),
+			(0, "".into())
+		);
+		assert_eq!(
+			substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5 + 1..], &variables).unwrap(),
+			(0, "".into())
+		);
 	}
 }
