@@ -154,32 +154,91 @@ where
 	Ok(output)
 }
 
-fn substitute_impl_one_step<'a, M, F>(
+#[derive(Debug)]
+enum TemplatePart<'a> {
+  Literal(LiteralTemplate<'a>),
+  Variable(Variable<'a>),
+  EscapedChar(EscapedCharTemplate),
+}
+
+#[derive(Debug)]
+struct LiteralTemplate<'a> {
+  text: &'a [u8],
+}
+
+trait ByteLength {
+	fn size(&self) -> usize;
+}
+
+impl<'a> ByteLength for TemplatePart<'a> {
+    fn size(&self) -> usize {
+		match self {
+			Self::Literal(l) => l.text.len(),
+			Self::Variable(v) => v.part_end - v.part_start,
+			Self::EscapedChar(_e) => 2,
+		}
+    }
+}
+
+#[derive(Debug)]
+struct EscapedCharTemplate {
+	name: u8,
+}
+
+fn parse_template_one_step<'a>(
 	finger: usize,
-	source: &[u8],
+	source: &'a [u8],
 	range: &std::ops::Range<usize>,
+) -> Result<Option<TemplatePart<'a>>, Error>
+{
+	if finger >= range.end {
+		return Ok(None); // end of input is reached
+	}
+
+	let c = source.get(finger).unwrap();
+
+	let part: TemplatePart = match c {
+		b'$' => TemplatePart::Variable(parse_variable(source, finger)?),
+		b'\\' => {
+			let c =  unescape_one(source, finger)?;
+			TemplatePart::EscapedChar(EscapedCharTemplate { name: c })
+		}
+		_c0 => {
+			match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
+				Some(x) => TemplatePart::Literal(LiteralTemplate { text: &source[finger..finger + x] }),
+				None => TemplatePart::Literal(LiteralTemplate{ text: &source[finger..range.end] })
+			}
+		}
+	};
+
+	Ok(Some(part))
+}
+
+fn parse_template<'a>(
+	source: &'a [u8],
+	range: &std::ops::Range<usize>,
+) -> Result<Vec<TemplatePart<'a>>, Error>
+{
+	let mut parts = Vec::new();
+	let mut finger = range.start;
+	while let Some(part) = parse_template_one_step(finger, source, range)? {
+		finger = finger + part.size();
+		parts.push(part);
+	}
+
+	Ok(parts)
+}
+
+fn evaluate_template_part_variable<'a, M, F>(
+	variable: &Variable,
+	output: &mut Vec<u8>,
 	variables: &'a M,
 	to_bytes: &F,
-) -> Result<Option<(Vec<u8>, SubstituteOneStepResult)>, Error>
+) -> Result<(), Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	F: Fn(&M::Value) -> &[u8],
 {
-	let next = match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
-		Some(x) => finger + x,
-		None => return Ok(None),
-	};
-
-	let mut output = Vec::new();
-	if source[next] == b'\\' {
-		output.push(unescape_one(source, next)?);
-		Ok(Some((output, SubstituteOneStepResult {
-			slice_before_ends: next,
-			slice_after_starts: next + 2,
-			subst_type: SubstitutionType::UnescapeOne,
-		})))
-	} else {
-		let variable = parse_variable(source, next)?;
 		let value = variables.get(variable.name);
 		match (&value, &variable.default) {
 			(None, None) => {
@@ -193,14 +252,98 @@ where
 				output.extend_from_slice(to_bytes(value));
 			},
 			(None, Some(default)) => {
-				substitute_impl(&mut output, source, default.clone(), variables, to_bytes)?;
+			evaluate_template(default, output, variables, to_bytes)?;
 			},
-		};
+	}
+
+	Ok(())
+}
+
+fn evaluate_template_part_escaped_char<'a>(
+	e: &EscapedCharTemplate,
+	output: &mut Vec<u8>,
+) -> Result<(), Error>
+{
+	output.push(e.name);
+	Ok(())
+}
+
+fn evaluate_template_part_literal<'a>(
+	l: &LiteralTemplate,
+	output: &mut Vec<u8>,
+) -> Result<(), Error>
+{
+	output.extend_from_slice(l.text);
+	Ok(())
+}
+
+fn evaluate_template_part<'a, M, F>(
+	tp: &TemplatePart,
+	output: &mut Vec<u8>,
+	variables: &'a M,
+	to_bytes: &F,
+) -> Result<(), Error>
+where
+	M: VariableMap<'a> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
+{
+	match tp {
+		TemplatePart::Literal(l) => evaluate_template_part_literal(l, output)?,
+		TemplatePart::Variable(v) => evaluate_template_part_variable(v, output, variables, to_bytes)?,
+		TemplatePart::EscapedChar(e) => evaluate_template_part_escaped_char(e, output)?,
+	}
+
+	Ok(())
+}
+
+fn evaluate_template<'a, M, F>(
+	t: &Vec<TemplatePart>,
+	output: &mut Vec<u8>,
+	variables: &'a M,
+	to_bytes: &F,
+) -> Result<(), Error>
+where
+	M: VariableMap<'a> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
+{
+	for part in t {
+		evaluate_template_part(part, output, variables, to_bytes)?;
+	}
+
+	Ok(())
+}
+
+fn substitute_impl_one_step<'a, M, F>(
+	finger: usize,
+	source: &[u8],
+	range: &std::ops::Range<usize>,
+	variables: &'a M,
+	to_bytes: &F,
+) -> Result<Option<(Vec<u8>, SubstituteOneStepResult)>, Error>
+where
+	M: VariableMap<'a> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
+{
+	let mut finger = finger;
+	let mut output = Vec::<u8>::new();
+	let mut part = parse_template_one_step(finger, source, range)?;
+	match &part {
+		None => return Ok(None),
+		Some(TemplatePart::Literal(_l)) => {
+			finger += part.unwrap().size();
+			part = parse_template_one_step(finger, source, range)?;
+		}
+		Some(_) => {}
+	}
+	if let Some(part) = part {
+		evaluate_template_part(&part, &mut output, variables, to_bytes)?;
 		Ok(Some((output, SubstituteOneStepResult {
-			slice_before_ends: next,
-			slice_after_starts: variable.end_position,
-			subst_type: SubstitutionType::Variable,
+			slice_before_ends: finger,
+			slice_after_starts: finger + part.size(),
+			subst_type: if let TemplatePart::EscapedChar(_) = part { SubstitutionType::UnescapeOne } else { SubstitutionType::Variable },
 		})))
+	} else {
+		Ok(None)
 	}
 }
 
@@ -219,25 +362,19 @@ where
 	M: VariableMap<'a> + ?Sized,
 	F: Fn(&M::Value) -> &[u8],
 {
-	let mut finger = range.start;
-	while finger < range.end {
-		let new_finger_option = substitute_impl_one_step(finger, source, &range, variables, to_bytes)?;
-		if let Some((mut expanded_value, metadata)) = new_finger_option {
-			output.extend_from_slice(source.get(range.start..metadata.slice_before_ends).unwrap());
-			output.append(&mut expanded_value);
-			finger = metadata.slice_after_starts;
-		} else {
-			break;
-		}
+	let parts = parse_template(source, &range)?;
+	evaluate_template(&parts, output, variables, to_bytes)
 	}
-
-	output.extend_from_slice(&source[finger..range.end]);
-	Ok(())
-}
 
 /// A parsed variable.
 #[derive(Debug)]
 struct Variable<'a> {
+	/// template part start
+	part_start: usize,
+
+	/// The end position of the entire variable in the source.
+	part_end: usize,
+
 	/// The name of the variable.
 	name: &'a str,
 
@@ -245,10 +382,7 @@ struct Variable<'a> {
 	name_start: usize,
 
 	/// The default value of the variable.
-	default: Option<std::ops::Range<usize>>,
-
-	/// The end position of the entire variable in the source.
-	end_position: usize,
+	default: Option<Vec<TemplatePart<'a>>>,
 }
 
 /// Parse a variable from source at the given position.
@@ -283,7 +417,8 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 			name: std::str::from_utf8(&source[finger + 1..name_end]).unwrap(),
 			name_start: finger + 1,
 			default: None,
-			end_position: name_end,
+			part_start: finger,
+			part_end: name_end,
 		})
 	}
 }
@@ -328,7 +463,8 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 			name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
 			name_start,
 			default: None,
-			end_position: name_end + 1,
+			part_start: finger,
+			part_end: name_end + 1,
 		});
 
 	// If there is something other than a closing brace or colon after the name, it's an error.
@@ -347,11 +483,14 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 	let end = finger
 		+ find_non_escaped(b'}', &source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
 
+	let default_value = parse_template(source, &(name_end + 1..end))?;
+
 	Ok(Variable {
 		name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
 		name_start,
-		default: Some(name_end + 1..end),
-		end_position: end + 1,
+		default: Some(default_value),
+		part_start: finger,
+		part_end: end + 1,
 	})
 }
 
