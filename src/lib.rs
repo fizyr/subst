@@ -55,6 +55,7 @@
 #![warn(missing_docs, missing_debug_implementations)]
 
 pub mod error;
+
 pub use error::Error;
 
 mod map;
@@ -62,6 +63,24 @@ pub use map::*;
 
 #[cfg(feature = "yaml")]
 pub mod yaml;
+
+/// When using substitute_one_step, this reports about the
+/// type of substitution.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SubstitutionType {
+	/// a escape sequence was replace. E.g. "\$"
+	UnescapeOne,
+	/// a variable was expanded. E.g. ${VAR}
+	Variable,
+}
+
+/// result of single step substitution (one at a time)
+#[derive(Debug, PartialEq, Eq)]
+pub struct SubstituteOneStepResult {
+	slice_before_ends: usize,
+	slice_after_starts: usize,
+	subst_type: SubstitutionType,
+}
 
 /// Substitute variables in a string.
 ///
@@ -86,6 +105,34 @@ where
 	unsafe { Ok(String::from_utf8_unchecked(output)) }
 }
 
+/// Does one sub-step of substitute
+///
+/// Returns Some((replacement_string, next_position_in_source_str_after_variable_name)) when succeeded.
+/// Returns None if no substitution was possible.
+pub fn substitute_one_step<'a, M>(
+	source: &str,
+	variables: &'a M,
+) -> Result<Option<(String, SubstituteOneStepResult)>, Error>
+where
+	M: VariableMap<'a> + ?Sized,
+	M::Value: AsRef<str>,
+{
+	let result_option = substitute_impl_one_step(0, source.as_bytes(), &(0..source.len()), variables, &|x| {
+		x.as_ref().as_bytes()
+	})?;
+
+	if result_option.is_none() {
+		return Ok(None);
+	}
+
+	let result = result_option.unwrap();
+
+	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
+	let output_str = unsafe { String::from_utf8_unchecked(result.0) };
+
+	Ok(Some((output_str, result.1)))
+}
+
 /// Substitute variables in a byte string.
 ///
 /// Variables have the form `$NAME`, `${NAME}` or `${NAME:default}`.
@@ -107,6 +154,56 @@ where
 	Ok(output)
 }
 
+fn substitute_impl_one_step<'a, M, F>(
+	finger: usize,
+	source: &[u8],
+	range: &std::ops::Range<usize>,
+	variables: &'a M,
+	to_bytes: &F,
+) -> Result<Option<(Vec<u8>, SubstituteOneStepResult)>, Error>
+where
+	M: VariableMap<'a> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
+{
+	let next = match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
+		Some(x) => finger + x,
+		None => return Ok(None),
+	};
+
+	let mut output = Vec::new();
+	if source[next] == b'\\' {
+		output.push(unescape_one(source, next)?);
+		Ok(Some((output, SubstituteOneStepResult {
+			slice_before_ends: next,
+			slice_after_starts: next + 2,
+			subst_type: SubstitutionType::UnescapeOne,
+		})))
+	} else {
+		let variable = parse_variable(source, next)?;
+		let value = variables.get(variable.name);
+		match (&value, &variable.default) {
+			(None, None) => {
+				return Err(error::NoSuchVariable {
+					position: variable.name_start,
+					name: variable.name.to_owned(),
+				}
+				.into())
+			},
+			(Some(value), _) => {
+				output.extend_from_slice(to_bytes(value));
+			},
+			(None, Some(default)) => {
+				substitute_impl(&mut output, source, default.clone(), variables, to_bytes)?;
+			},
+		};
+		Ok(Some((output, SubstituteOneStepResult {
+			slice_before_ends: next,
+			slice_after_starts: variable.end_position,
+			subst_type: SubstitutionType::Variable,
+		})))
+	}
+}
+
 /// Substitute variables in a byte string.
 ///
 /// This is the real implementation used by both [`substitute`] and [`substitute_bytes`].
@@ -124,34 +221,13 @@ where
 {
 	let mut finger = range.start;
 	while finger < range.end {
-		let next = match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
-			Some(x) => finger + x,
-			None => break,
-		};
-
-		output.extend_from_slice(&source[finger..next]);
-		if source[next] == b'\\' {
-			output.push(unescape_one(source, next)?);
-			finger = next + 2;
+		let new_finger_option = substitute_impl_one_step(finger, source, &range, variables, to_bytes)?;
+		if let Some((mut expanded_value, metadata)) = new_finger_option {
+			output.extend_from_slice(source.get(range.start..metadata.slice_before_ends).unwrap());
+			output.append(&mut expanded_value);
+			finger = metadata.slice_after_starts;
 		} else {
-			let variable = parse_variable(source, next)?;
-			let value = variables.get(variable.name);
-			match (&value, &variable.default) {
-				(None, None) => {
-					return Err(error::NoSuchVariable {
-						position: variable.name_start,
-						name: variable.name.to_owned(),
-					}
-					.into())
-				},
-				(Some(value), _) => {
-					output.extend_from_slice(to_bytes(value));
-				},
-				(None, Some(default)) => {
-					substitute_impl(output, source, default.clone(), variables, to_bytes)?;
-				},
-			};
-			finger = variable.end_position;
+			break;
 		}
 	}
 
@@ -418,7 +494,10 @@ mod test {
 	fn substitution_in_default_value() {
 		let mut map: BTreeMap<String, String> = BTreeMap::new();
 		map.insert("name".into(), "world".into());
-		check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel $name}!", &map).as_deref());
+		assert_eq!(
+			Ok("Hello cruel world!"),
+			substitute("Hello ${not_name:cruel $name}!", &map).as_deref()
+		);
 	}
 
 	#[test]
@@ -591,7 +670,7 @@ mod test {
 		let variables: &dyn VariableMap<Value = &String> = &variables;
 
 		let_assert!(Ok(expanded) = substitute("one ${aap}", variables));
-		assert!(expanded == "one noot");
+		assert_eq!(expanded, "one noot");
 	}
 
 	#[test]
@@ -606,5 +685,35 @@ mod test {
 				r"  emoticon: \（ ^▽^ ）/", "\n",
 				r"            ^^^", "\n",
 		));
+	}
+
+	#[test]
+	fn test_substitute_one_step_variable_and_escape_sequence() {
+		let mut variables = BTreeMap::new();
+		variables.insert(String::from("NAME"), String::from("subst"));
+
+		let source = r"hello $NAME. Nice\$to meet you $NAME.";
+		let result = substitute_one_step(source, &variables).unwrap().unwrap();
+		assert_eq!(result.0, "subst");
+		assert_eq!(result.1.slice_before_ends, 6);
+		assert_eq!(result.1.slice_after_starts, 11);
+		assert_eq!(result.1.subst_type, SubstitutionType::Variable);
+
+		let result = substitute_one_step(source.get(result.1.slice_after_starts..).unwrap(), &variables)
+			.unwrap()
+			.unwrap();
+		assert_eq!(result.0, "$");
+		assert_eq!(result.1.slice_before_ends, 6);
+		assert_eq!(result.1.slice_after_starts, 8);
+		assert_eq!(result.1.subst_type, SubstitutionType::UnescapeOne);
+	}
+
+	#[test]
+	fn test_substitute_one_step_no_substitution() {
+		let variables: BTreeMap<String, String> = BTreeMap::new();
+
+		let source = r"hello world";
+		let result = substitute_one_step(source, &variables).unwrap();
+		assert!(result.is_none());
 	}
 }
