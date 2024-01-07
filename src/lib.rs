@@ -64,24 +64,6 @@ pub use map::*;
 #[cfg(feature = "yaml")]
 pub mod yaml;
 
-/// When using substitute_one_step, this reports about the
-/// type of substitution.
-#[derive(Debug, PartialEq, Eq)]
-pub enum SubstitutionType {
-	/// a escape sequence was replace. E.g. "\$"
-	UnescapeOne,
-	/// a variable was expanded. E.g. ${VAR}
-	Variable,
-}
-
-/// result of single step substitution (one at a time)
-#[derive(Debug, PartialEq, Eq)]
-pub struct SubstituteOneStepResult {
-	slice_before_ends: usize,
-	slice_after_starts: usize,
-	subst_type: SubstitutionType,
-}
-
 /// Substitute variables in a string.
 ///
 /// Variables have the form `$NAME`, `${NAME}` or `${NAME:default}`.
@@ -97,40 +79,8 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source.as_bytes(), 0..source.len(), variables, &|x| {
-		x.as_ref().as_bytes()
-	})?;
-	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
-	unsafe { Ok(String::from_utf8_unchecked(output)) }
-}
-
-/// Does one sub-step of substitute
-///
-/// Returns Some((replacement_string, next_position_in_source_str_after_variable_name)) when succeeded.
-/// Returns None if no substitution was possible.
-pub fn substitute_one_step<'a, M>(
-	source: &str,
-	variables: &'a M,
-) -> Result<Option<(String, SubstituteOneStepResult)>, Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	M::Value: AsRef<str>,
-{
-	let result_option = substitute_impl_one_step(0, source.as_bytes(), &(0..source.len()), variables, &|x| {
-		x.as_ref().as_bytes()
-	})?;
-
-	if result_option.is_none() {
-		return Ok(None);
-	}
-
-	let result = result_option.unwrap();
-
-	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
-	let output_str = unsafe { String::from_utf8_unchecked(result.0) };
-
-	Ok(Some((output_str, result.1)))
+	let template = Template::parse(source)?;
+	template.expand(variables)
 }
 
 /// Substitute variables in a byte string.
@@ -149,8 +99,9 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<[u8]>,
 {
+	let template = parse_template(source, &(0..source.len()))?;
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source, 0..source.len(), variables, &|x| x.as_ref())?;
+	evaluate_template_impl(&template, &mut output, variables, &|x| x.as_ref())?;
 	Ok(output)
 }
 
@@ -173,12 +124,25 @@ trait ByteLength {
 impl<'a> ByteLength for TemplatePart<'a> {
     fn size(&self) -> usize {
 		match self {
-			Self::Literal(l) => l.text.len(),
-			Self::Variable(v) => v.part_end - v.part_start,
-			Self::EscapedChar(_e) => 2,
+			Self::Literal(l) => l.size(),
+			Self::Variable(v) => v.size(),
+			Self::EscapedChar(e) => e.size(),
 		}
     }
 }
+
+impl<'a> ByteLength for LiteralTemplate<'a> {
+    fn size(&self) -> usize { self.text.len() }
+}
+
+impl<'a> ByteLength for Variable<'a> {
+    fn size(&self) -> usize { self.part_end - self.part_start }
+}
+
+impl ByteLength for EscapedCharTemplate {
+    fn size(&self) -> usize { 2 }
+}
+
 
 #[derive(Debug, PartialEq, Eq)]
 struct EscapedCharTemplate {
@@ -212,6 +176,36 @@ fn parse_template_one_step<'a>(
 	};
 
 	Ok(Some(part))
+}
+
+/// This class can be constructed by providing a template input string.
+/// This input string is parsed into TemplateParts which are stored in memory.
+/// With calling `expand` the template gets instantiated by substitution of the variables and escape sequences.
+#[derive(Debug)]
+pub struct Template<'a> {
+	source: &'a [u8],
+	parts: Vec<TemplatePart<'a>>,
+}
+
+impl<'a> Template<'a> {
+	/// Creates a new template from a string
+	pub fn parse(source: &'a str) -> Result<Self, Error> {
+		Ok(Self {
+			source: source.as_bytes(),
+			parts: parse_template(
+				source.as_bytes(),
+				&(0..source.len()))?,
+		})
+	}
+
+	/// expands all the fields in the template and returns result
+	pub fn expand<'b, M>(&self, variables: &'b M) -> Result<String, Error>
+	where
+		M: VariableMap<'b> + ?Sized,
+		M::Value: AsRef<str>,
+	{
+		expand_template_simple(&self.parts, variables, Some(self.source.len()))
+	}
 }
 
 fn parse_template<'a>(
@@ -252,7 +246,7 @@ where
 				output.extend_from_slice(to_bytes(value));
 			},
 			(None, Some(default)) => {
-			evaluate_template(default, output, variables, to_bytes)?;
+			evaluate_template_impl(default, output, variables, to_bytes)?;
 			},
 	}
 
@@ -296,7 +290,7 @@ where
 	Ok(())
 }
 
-fn evaluate_template<'a, M, F>(
+fn evaluate_template_impl<'a, M, F>(
 	t: &Vec<TemplatePart>,
 	output: &mut Vec<u8>,
 	variables: &'a M,
@@ -313,58 +307,50 @@ where
 	Ok(())
 }
 
-fn substitute_impl_one_step<'a, M, F>(
-	finger: usize,
-	source: &[u8],
-	range: &std::ops::Range<usize>,
-	variables: &'a M,
-	to_bytes: &F,
-) -> Result<Option<(Vec<u8>, SubstituteOneStepResult)>, Error>
+/// takes a template and variable map to generate output
+fn expand_template_simple<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<String, Error>
 where
 	M: VariableMap<'a> + ?Sized,
-	F: Fn(&M::Value) -> &[u8],
+	M::Value: AsRef<str>,
 {
-	let mut finger = finger;
-	let mut output = Vec::<u8>::new();
-	let mut part = parse_template_one_step(finger, source, range)?;
-	match &part {
-		None => return Ok(None),
-		Some(TemplatePart::Literal(_l)) => {
-			finger += part.unwrap().size();
-			part = parse_template_one_step(finger, source, range)?;
-		}
-		Some(_) => {}
-	}
-	if let Some(part) = part {
-		evaluate_template_part(&part, &mut output, variables, to_bytes)?;
-		Ok(Some((output, SubstituteOneStepResult {
-			slice_before_ends: finger,
-			slice_after_starts: finger + part.size(),
-			subst_type: if let TemplatePart::EscapedChar(_) = part { SubstitutionType::UnescapeOne } else { SubstitutionType::Variable },
-		})))
-	} else {
-		Ok(None)
-	}
+	let output = evaluate_template_simple_impl(t, variables, source_size)?;
+	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
+	unsafe { Ok(String::from_utf8_unchecked(output)) }
 }
 
-/// Substitute variables in a byte string.
-///
-/// This is the real implementation used by both [`substitute`] and [`substitute_bytes`].
-/// The function accepts any type that implements [`VariableMap`], and a function to convert the value from the map into bytes.
-fn substitute_impl<'a, M, F>(
-	output: &mut Vec<u8>,
-	source: &[u8],
-	range: std::ops::Range<usize>,
-	variables: &'a M,
-	to_bytes: &F,
-) -> Result<(), Error>
+fn evaluate_template_simple_impl<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<Vec<u8>, Error>
 where
 	M: VariableMap<'a> + ?Sized,
-	F: Fn(&M::Value) -> &[u8],
+	M::Value: AsRef<str>,
 {
-	let parts = parse_template(source, &range)?;
-	evaluate_template(&parts, output, variables, to_bytes)
+	let source_size = if let Some(source_size) = source_size { source_size } else {0};
+	let mut output = Vec::with_capacity(source_size + source_size / 10);
+	evaluate_template_impl(t, &mut output, variables, &|x| {
+		x.as_ref().as_bytes()
+	})?;
+	Ok(output)
+}
+
+/// does one sub-step of substitute.
+pub fn substitute_one<'a, M>(source: &str, variables: &'a M) -> Result<(usize, String), Error>
+where
+	M: VariableMap<'a> + ?Sized,
+	M::Value: AsRef<str>,
+{
+	let next_part = parse_template_one_step(
+		0, source.as_bytes(), &(0..source.len()))?;
+
+	if let Some(part) = next_part {
+		let mut output = Vec::with_capacity(source.len() + source.len() / 10);
+		evaluate_template_part(&part, &mut output, variables, &|x| {
+			x.as_ref().as_bytes()
+		})?;
+		// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
+		Ok((part.size(), unsafe { String::from_utf8_unchecked(output) }))
+	} else {
+		Ok((0, "".into()))
 	}
+}
 
 /// A parsed variable.
 #[derive(Debug, PartialEq, Eq)]
@@ -832,36 +818,14 @@ mod test {
 		variables.insert(String::from("NAME"), String::from("subst"));
 
 		let source = r"hello $NAME. Nice\$to meet you $NAME.";
-		let range = 0..source.len();
-		let mut finger = 0;
-		let result = parse_template_one_step(0, source.as_bytes(), &range).unwrap().unwrap();
-		assert_eq!(result, TemplatePart::Literal(LiteralTemplate { text: &source.as_bytes()[0..6] }));
-		finger += result.size();
-		let result = parse_template_one_step(finger, source.as_bytes(), &range).unwrap().unwrap();
-		assert_eq!(result, TemplatePart::Variable(Variable { part_start: finger, name_start: finger+1, name: "NAME", part_end: finger+5, default: None }));
-		evaluate_template_part(&result, output, variables, to_bytes);
-
-		let result = substitute_one_step(source, &variables).unwrap().unwrap();
-		assert_eq!(result.0, "subst");
-		assert_eq!(result.1.slice_before_ends, 6);
-		assert_eq!(result.1.slice_after_starts, 11);
-		assert_eq!(result.1.subst_type, SubstitutionType::Variable);
-
-		let result = substitute_one_step(source.get(result.1.slice_after_starts..).unwrap(), &variables)
-			.unwrap()
-			.unwrap();
-		assert_eq!(result.0, "$");
-		assert_eq!(result.1.slice_before_ends, 6);
-		assert_eq!(result.1.slice_after_starts, 8);
-		assert_eq!(result.1.subst_type, SubstitutionType::UnescapeOne);
-	}
-
-	#[test]
-	fn test_substitute_one_step_no_substitution() {
-		let variables: BTreeMap<String, String> = BTreeMap::new();
-
-		let source = r"hello world";
-		let result = substitute_one_step(source, &variables).unwrap();
-		assert!(result.is_none());
+		assert_eq!(substitute_one(source, &variables).unwrap(), (6, "hello ".into()));
+		assert_eq!(substitute_one(&source[6..], &variables).unwrap(), (5, "subst".into()));
+		assert_eq!(substitute_one(&source[6+5..], &variables).unwrap(), (6, ". Nice".into()));
+		assert_eq!(substitute_one(&source[6+5+6..], &variables).unwrap(), (2, "$".into()));
+		assert_eq!(substitute_one(&source[6+5+6+2..], &variables).unwrap(), (12, "to meet you ".into()));
+		assert_eq!(substitute_one(&source[6+5+6+2+12..], &variables).unwrap(), (5, "subst".into()));
+		assert_eq!(substitute_one(&source[6+5+6+2+12+5..], &variables).unwrap(), (1, ".".into()));
+		assert_eq!(substitute_one(&source[6+5+6+2+12+5+1..], &variables).unwrap(), (0, "".into()));
+		assert_eq!(substitute_one(&source[6+5+6+2+12+5+1..], &variables).unwrap(), (0, "".into()));
 	}
 }
