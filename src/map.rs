@@ -30,8 +30,7 @@ pub enum NeverValue {}
 impl<T: ?Sized> AsRef<T> for NeverValue {
 	#[inline]
 	fn as_ref(&self) -> &T {
-		match *self {
-		}
+		match *self {}
 	}
 }
 

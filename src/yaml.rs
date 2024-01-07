@@ -126,6 +126,7 @@ mod test {
 		let mut variables = HashMap::new();
 		variables.insert("bar", "aap");
 		variables.insert("baz", "noot");
+		#[rustfmt::skip]
 		let_assert!(Ok(parsed) = from_str(
 			concat!(
 				"bar: $bar\n",
@@ -150,6 +151,7 @@ mod test {
 		let mut variables = HashMap::new();
 		variables.insert("bar", "aap");
 		variables.insert("baz", "noot");
+		#[rustfmt::skip]
 		let_assert!(Ok(parsed) = from_str(
 			concat!(
 				"bar: aap\n",
@@ -174,6 +176,7 @@ mod test {
 		let mut variables = HashMap::new();
 		variables.insert("bar", "aap\nbaz: mies");
 		variables.insert("baz", "noot");
+		#[rustfmt::skip]
 		let_assert!(Ok(parsed) = from_str(
 			concat!(
 				"bar: $bar\n",
@@ -198,6 +201,7 @@ mod test {
 		let mut variables = HashMap::new();
 		variables.insert("bar", "aap\nbaz: mies");
 		variables.insert("baz", "noot");
+		#[rustfmt::skip]
 		let_assert!(Ok(parsed) = from_str(
 			concat!(
 				"bar: !!string $bar\n",
@@ -223,7 +227,7 @@ mod test {
 		variables.insert("bar", "aap");
 		variables.insert("baz", "noot");
 		let variables: &dyn VariableMap<Value = &&str> = &variables;
-
+		#[rustfmt::skip]
 		let_assert!(Ok(parsed) = from_str(
 			concat!(
 				"bar: $bar\n",
