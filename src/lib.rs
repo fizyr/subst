@@ -154,14 +154,14 @@ where
 	Ok(output)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum TemplatePart<'a> {
   Literal(LiteralTemplate<'a>),
   Variable(Variable<'a>),
   EscapedChar(EscapedCharTemplate),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct LiteralTemplate<'a> {
   text: &'a [u8],
 }
@@ -180,7 +180,7 @@ impl<'a> ByteLength for TemplatePart<'a> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct EscapedCharTemplate {
 	name: u8,
 }
@@ -367,7 +367,7 @@ where
 	}
 
 /// A parsed variable.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 struct Variable<'a> {
 	/// template part start
 	part_start: usize,
@@ -832,6 +832,15 @@ mod test {
 		variables.insert(String::from("NAME"), String::from("subst"));
 
 		let source = r"hello $NAME. Nice\$to meet you $NAME.";
+		let range = 0..source.len();
+		let mut finger = 0;
+		let result = parse_template_one_step(0, source.as_bytes(), &range).unwrap().unwrap();
+		assert_eq!(result, TemplatePart::Literal(LiteralTemplate { text: &source.as_bytes()[0..6] }));
+		finger += result.size();
+		let result = parse_template_one_step(finger, source.as_bytes(), &range).unwrap().unwrap();
+		assert_eq!(result, TemplatePart::Variable(Variable { part_start: finger, name_start: finger+1, name: "NAME", part_end: finger+5, default: None }));
+		evaluate_template_part(&result, output, variables, to_bytes);
+
 		let result = substitute_one_step(source, &variables).unwrap().unwrap();
 		assert_eq!(result.0, "subst");
 		assert_eq!(result.1.slice_before_ends, 6);
