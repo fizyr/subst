@@ -215,7 +215,12 @@ impl std::error::Error for UnexpectedCharacter {}
 impl std::fmt::Display for UnexpectedCharacter {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-		write!(f, "Unexpected character: {}, expected {}", self.character.quoted_printable(), self.expected.message())
+		write!(
+			f,
+			"Unexpected character: {}, expected {}",
+			self.character.quoted_printable(),
+			self.expected.message()
+		)
 	}
 }
 
@@ -285,18 +290,10 @@ impl Error {
 				let char_len = e.character.map(|x| x.source_len()).unwrap_or(0);
 				(e.position, 1 + char_len)
 			},
-			Self::MissingVariableName(e) => {
-				(e.position, e.len)
-			},
-			Self::UnexpectedCharacter(e) => {
-				(e.position, e.character.source_len())
-			},
-			Self::MissingClosingBrace(e) => {
-				(e.position, 1)
-			},
-			Self::NoSuchVariable(e) => {
-				(e.position, e.name.len())
-			},
+			Self::MissingVariableName(e) => (e.position, e.len),
+			Self::UnexpectedCharacter(e) => (e.position, e.character.source_len()),
+			Self::MissingClosingBrace(e) => (e.position, 1),
+			Self::NoSuchVariable(e) => (e.position, e.name.len()),
 		};
 		std::ops::Range {
 			start,
@@ -329,7 +326,7 @@ impl Error {
 		let range = self.source_range();
 		let line = self.source_line(source);
 		if line.width() > 60 {
-			return Ok(())
+			return Ok(());
 		}
 		write!(f, "  {}\n  ", line)?;
 		write_underline(f, line, range)?;
@@ -359,7 +356,7 @@ fn line_start(source: &str, position: usize) -> usize {
 fn line_end(source: &str, position: usize) -> usize {
 	match source[position..].find(|c| c == '\n' || c == '\r') {
 		Some(line_end) => position + line_end,
-		None => source.len()
+		None => source.len(),
 	}
 }
 
