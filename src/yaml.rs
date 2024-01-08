@@ -4,7 +4,7 @@ use serde::de::DeserializeOwned;
 
 use crate::VariableMap;
 
-/// Parse a struct from YAML data, after perfoming variable substitution on string values.
+/// Parse a struct from YAML data, after performing variable substitution on string values.
 ///
 /// This function first parses the data into a [`serde_yaml::Value`],
 /// then performs variable substitution on all string values,
@@ -19,7 +19,7 @@ where
 	Ok(serde_yaml::from_value(value)?)
 }
 
-/// Parse a struct from YAML data, after perfoming variable substitution on string values.
+/// Parse a struct from YAML data, after performing variable substitution on string values.
 ///
 /// This function first parses the data into a [`serde_yaml::Value`],
 /// then performs variable substitution on all string values,
@@ -49,10 +49,10 @@ where
 /// Error for parsing YAML with variable substitution.
 #[derive(Debug)]
 pub enum Error {
-	/// An error occured while parsing YAML.
+	/// An error occurred while parsing YAML.
 	Yaml(serde_yaml::Error),
 
-	/// An error occured while performing variable substitution.
+	/// An error occurred while performing variable substitution.
 	Subst(crate::Error),
 }
 
@@ -88,9 +88,7 @@ where
 	F: Copy + Fn(&mut String) -> Result<(), E>,
 {
 	match value {
-		serde_yaml::Value::Null => Ok(()),
-		serde_yaml::Value::Bool(_) => Ok(()),
-		serde_yaml::Value::Number(_) => Ok(()),
+		serde_yaml::Value::Null | serde_yaml::Value::Bool(_) | serde_yaml::Value::Number(_) => Ok(()),
 		serde_yaml::Value::String(val) => fun(val),
 		serde_yaml::Value::Tagged(tagged) => visit_string_values(&mut tagged.value, fun),
 		serde_yaml::Value::Sequence(seq) => {
@@ -100,7 +98,7 @@ where
 			Ok(())
 		},
 		serde_yaml::Value::Mapping(map) => {
-			for (_key, value) in map.iter_mut() {
+			for value in map.values_mut() {
 				visit_string_values(value, fun)?;
 			}
 			Ok(())
@@ -109,6 +107,7 @@ where
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod test {
 	use std::collections::HashMap;
 

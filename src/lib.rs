@@ -141,10 +141,9 @@ where
 					return Err(error::NoSuchVariable {
 						position: variable.name_start,
 						name: variable.name.to_owned(),
-					}
-					.into())
+					})?;
 				},
-				(Some(value), _) => {
+				(Some(value), _default) => {
 					output.extend_from_slice(to_bytes(value));
 				},
 				(None, Some(default)) => {
@@ -183,8 +182,7 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 		return Err(error::MissingVariableName {
 			position: finger,
 			len: 1,
-		}
-		.into());
+		})?;
 	}
 	if source[finger + 1] == b'{' {
 		parse_braced_variable(source, finger)
@@ -197,8 +195,7 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 				return Err(error::MissingVariableName {
 					position: finger,
 					len: 1,
-				}
-				.into())
+				})?;
 			},
 			Some(x) => finger + 1 + x,
 			None => source.len(),
@@ -221,8 +218,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 		return Err(error::MissingVariableName {
 			position: finger,
 			len: 2,
-		}
-		.into());
+		})?;
 	}
 
 	// Get the first sequence of alphanumeric characters and underscores for the variable name.
@@ -234,8 +230,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 			return Err(error::MissingVariableName {
 				position: finger,
 				len: 2,
-			}
-			.into())
+			})?;
 		},
 		Some(x) => name_start + x,
 		None => source.len(),
@@ -243,7 +238,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 
 	// If the name extends to the end, we're missing a closing brace.
 	if name_end == source.len() {
-		return Err(error::MissingClosingBrace { position: finger + 1 }.into());
+		return Err(error::MissingClosingBrace { position: finger + 1 })?;
 	}
 
 	// If there is a closing brace after the name, there is no default value and we're done.
@@ -263,8 +258,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 			expected: error::ExpectedCharacter {
 				message: "a closing brace ('}') or colon (':')",
 			},
-		}
-		.into());
+		})?;
 	}
 
 	// If there is no un-escaped closing brace, it's missing.
@@ -341,8 +335,7 @@ fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
 		return Err(error::InvalidEscapeSequence {
 			position,
 			character: None,
-		}
-		.into());
+		})?;
 	}
 	match source[position + 1] {
 		b'\\' => Ok(b'\\'),
@@ -353,12 +346,12 @@ fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
 		_ => Err(error::InvalidEscapeSequence {
 			position,
 			character: Some(get_maybe_char_at(source, position + 1)),
-		}
-		.into()),
+		})?,
 	}
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod test {
 	use super::*;
 	use assert2::{assert, check, let_assert};
@@ -367,6 +360,7 @@ mod test {
 	#[test]
 	fn test_get_maybe_char_at() {
 		use error::CharOrByte::{Byte, Char};
+
 		assert!(get_maybe_char_at(b"hello", 0) == Char('h'));
 		assert!(get_maybe_char_at(b"he", 0) == Char('h'));
 		assert!(get_maybe_char_at(b"hello", 1) == Char('e'));

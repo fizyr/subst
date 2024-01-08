@@ -86,6 +86,7 @@ impl CharOrByte {
 	/// For [`Self::Char`], this returns the UTF-8 lengths of the character.
 	/// For [`Self::Byte`], this is always returns 1.
 	#[inline]
+	#[must_use]
 	pub fn source_len(&self) -> usize {
 		match self {
 			Self::Char(c) => c.len_utf8(),
@@ -96,6 +97,7 @@ impl CharOrByte {
 	/// Return a printable version of `self` for error messages.
 	///
 	/// The returned value implements `Display` and is suitable for inclusion in error messages.
+	#[must_use]
 	pub fn quoted_printable(&self) -> impl std::fmt::Display {
 		#[derive(Copy, Clone, Debug)]
 		struct QuotedPrintable {
@@ -162,7 +164,7 @@ impl std::fmt::Display for InvalidEscapeSequence {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		if let Some(c) = self.character {
-			write!(f, "Invalid escape sequence: \\{}", c)
+			write!(f, "Invalid escape sequence: \\{c}")
 		} else {
 			write!(f, "Invalid escape sequence: missing escape character")
 		}
@@ -235,6 +237,7 @@ pub struct ExpectedCharacter {
 impl ExpectedCharacter {
 	/// Get a human readable message to describe what was expected.
 	#[inline]
+	#[must_use]
 	pub fn message(&self) -> &str {
 		self.message
 	}
@@ -284,10 +287,11 @@ impl std::fmt::Display for NoSuchVariable {
 impl Error {
 	/// Get the range in the source text that contains the error.
 	#[inline]
+	#[must_use]
 	pub fn source_range(&self) -> std::ops::Range<usize> {
 		let (start, len) = match &self {
 			Self::InvalidEscapeSequence(e) => {
-				let char_len = e.character.map(|x| x.source_len()).unwrap_or(0);
+				let char_len = e.character.map_or(0, |x| x.source_len());
 				(e.position, 1 + char_len)
 			},
 			Self::MissingVariableName(e) => (e.position, e.len),
@@ -306,6 +310,7 @@ impl Error {
 	/// # Panics
 	/// May panic if the source text is not the original source that contains the error.
 	#[inline]
+	#[must_use]
 	pub fn source_line<'a>(&self, source: &'a str) -> &'a str {
 		let position = self.source_range().start;
 		let start = line_start(source, position);
@@ -328,7 +333,7 @@ impl Error {
 		if line.width() > 60 {
 			return Ok(());
 		}
-		write!(f, "  {}\n  ", line)?;
+		write!(f, "  {line}\n  ")?;
 		write_underline(f, line, range)?;
 		writeln!(f)
 	}
@@ -339,6 +344,7 @@ impl Error {
 	///
 	/// Note: this function returns an empty string if the source line exceeds 60 characters in width.
 	#[inline]
+	#[must_use]
 	pub fn source_highlighting(&self, source: &str) -> String {
 		let mut output = String::new();
 		self.write_source_highlighting(&mut output, source).unwrap();
@@ -374,7 +380,7 @@ mod test {
 	use assert2::check;
 
 	#[test]
-	fn test_char_or_byte_quoated_printable() {
+	fn test_char_or_byte_quoted_printable() {
 		use super::CharOrByte::{Byte, Char};
 		check!(Byte(0x81).quoted_printable().to_string() == r"'\x81'");
 		check!(Byte(0x79).quoted_printable().to_string() == r"'y'");
