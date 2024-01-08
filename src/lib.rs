@@ -79,8 +79,15 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let template = Template::parse(source)?;
-	template.expand(variables)
+	let parser = TemplateParser {allow_variable_name_starting_with_number: true};
+	let template = parser.parse(source)?;
+	let expander = TemplateExpander::new(variables, &from_str_to_bytes::<M::Value>);
+	expander.expand_template(&template)
+}
+
+fn from_bytes_to_bytes<V: AsRef<[u8]>>(x: &V) -> &[u8]
+{
+	x.as_ref()
 }
 
 /// Substitute variables in a byte string.
@@ -99,9 +106,11 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<[u8]>,
 {
-	let template = parse_template(source, &(0..source.len()))?;
+	let parser = TemplateParser {allow_variable_name_starting_with_number: true};
+	let template = parser.parse_template_range(source, &(0..source.len()))?;
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	expand_template_impl(&template, &mut output, variables, &|x| x.as_ref())?;
+	let expander = TemplateExpander::new(variables, &from_bytes_to_bytes);
+	expander.expand_template_impl(&template, &mut output)?;
 	Ok(output)
 }
 
@@ -154,34 +163,82 @@ struct EscapedCharTemplate {
 	name: u8,
 }
 
-fn parse_template_one_step<'a>(
-	finger: usize,
-	source: &'a [u8],
-	range: &std::ops::Range<usize>,
-) -> Result<Option<TemplatePart<'a>>, Error> {
-	if finger >= range.end {
-		return Ok(None); // end of input is reached
+impl TemplateParser {
+
+	fn parse_template_one_step<'a>(
+		&self,
+		finger: usize,
+		source: &'a [u8],
+		range: &std::ops::Range<usize>,
+	) -> Result<Option<TemplatePart<'a>>, Error> {
+		if finger >= range.end {
+			return Ok(None); // end of input is reached
+		}
+
+		let c = source.get(finger).unwrap();
+
+		let part: TemplatePart = match c {
+			b'$' => TemplatePart::Variable(self.parse_variable(source, finger)?),
+			b'\\' => {
+				let c = unescape_one(source, finger)?;
+				TemplatePart::EscapedChar(EscapedCharTemplate { name: c })
+			},
+			_c0 => match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
+				Some(x) => TemplatePart::Literal(LiteralTemplate {
+					text: &source[finger..finger + x],
+				}),
+				None => TemplatePart::Literal(LiteralTemplate {
+					text: &source[finger..range.end],
+				}),
+			},
+		};
+
+		Ok(Some(part))
 	}
+}
 
-	let c = source.get(finger).unwrap();
+/// Provides configurable expanding of template
+#[derive(Debug)]
+pub struct TemplateExpander<'a, M, F>
+where
+		M: VariableMap<'a> + ?Sized,
+		F: Fn(&M::Value) -> &[u8],
+{
+	variables: &'a M,
+	to_bytes: &'a F,
+	silent_missing_variables: bool,
+}
 
-	let part: TemplatePart = match c {
-		b'$' => TemplatePart::Variable(parse_variable(source, finger)?),
-		b'\\' => {
-			let c = unescape_one(source, finger)?;
-			TemplatePart::EscapedChar(EscapedCharTemplate { name: c })
-		},
-		_c0 => match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
-			Some(x) => TemplatePart::Literal(LiteralTemplate {
-				text: &source[finger..finger + x],
-			}),
-			None => TemplatePart::Literal(LiteralTemplate {
-				text: &source[finger..range.end],
-			}),
-		},
-	};
+impl<'a, M, F> TemplateExpander<'a, M, F>
+where
+	M: VariableMap<'a> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
+{
+	fn new(variables: &'a M, to_bytes: &'a F) -> Self
+	{
+		Self {
+			variables,
+			to_bytes,
+			silent_missing_variables: false,
+		}
+	}
+}
 
-	Ok(Some(part))
+fn from_str_to_bytes<V: AsRef<str>>(x: &V) -> &[u8]
+{
+	x.as_ref().as_bytes()
+}
+
+impl<'b, M, F> TemplateExpander<'b, M, F>
+where
+	M: VariableMap<'b> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
+{
+	/// allows convenient activation/deactivation of setting
+	pub fn set_silent_missing_variables(mut self, value: bool) -> Self {
+		self.silent_missing_variables = value;
+		self
+	}
 }
 
 /// This class can be constructed by providing a template input string.
@@ -194,156 +251,185 @@ pub struct Template<'a> {
 }
 
 impl<'a> Template<'a> {
+	/// expands all the fields in the template and returns result
+	pub fn expand<'b, M, F>(&self, config: &TemplateExpander<'b, M, F>) -> Result<String, Error>
+	where
+		M: VariableMap<'b> + ?Sized,
+		F: Fn(&M::Value) -> &[u8],
+	{
+		config.expand_template_parts_vec(&self.parts, Some(self.source.len()))
+	}
+}
+
+/// provide configurable template parsing features
+#[derive(Debug)]
+pub struct TemplateParser {
+	allow_variable_name_starting_with_number: bool,
+}
+
+impl Default for TemplateParser {
+    fn default() -> Self {
+        Self { allow_variable_name_starting_with_number: true }
+    }
+}
+
+impl TemplateParser {
+
 	/// Creates a new template from a string
-	pub fn parse(source: &'a str) -> Result<Self, Error> {
-		Ok(Self {
+	pub fn parse<'a>(&'a self, source: &'a str) -> Result<Template<'a>, Error> {
+		Ok(Template {
 			source: source.as_bytes(),
-			parts: parse_template(source.as_bytes(), &(0..source.len()))?,
+			parts: self.parse_template_range(source.as_bytes(), &(0..source.len()))?,
 		})
 	}
 
-	/// expands all the fields in the template and returns result
-	pub fn expand<'b, M>(&self, variables: &'b M) -> Result<String, Error>
-	where
-		M: VariableMap<'b> + ?Sized,
-		M::Value: AsRef<str>,
+	fn parse_template_range<'a>(&self, source: &'a [u8], range: &std::ops::Range<usize>) -> Result<Vec<TemplatePart<'a>>, Error> {
+		let mut parts: Vec<TemplatePart<'a>> = Vec::<TemplatePart<'a>>::new();
+		let mut finger = range.start;
+		while let Some(part) = self.parse_template_one_step(finger, source, range)? {
+			finger += part.size();
+			parts.push(part);
+		}
+
+		Ok(parts)
+	}
+
+	/// parses a new template from a sequence of bytes
+	pub fn parse_from_bytes<'a>(&'a self, source: &'a [u8]) -> Result<Template<'a>, Error> {
+		Ok(Template { source, parts: self.parse_template_range(source, &(0..source.len()))? })
+	}
+}
+
+impl<'a, M, F> TemplateExpander<'a, M, F>
+where
+		M: VariableMap<'a> + ?Sized,
+		F: Fn(&M::Value) -> &[u8],
+{
+
+	fn expand_template_part_variable(&self,
+		variable: &Variable,
+		output: &mut Vec<u8>,
+	) -> Result<(), Error>
 	{
-		expand_template(&self.parts, variables, Some(self.source.len()))
-	}
-}
+		let value = self.variables.get(variable.name);
+		match (&value, &variable.default) {
+			(None, None) => {
+				if !self.silent_missing_variables {
+					return Err(error::NoSuchVariable {
+						position: variable.name_start,
+						name: variable.name.to_owned(),
+					}
+					.into())
+				}
+			},
+			(Some(value), _) => {
+				output.extend_from_slice((*self.to_bytes)(value));
+			},
+			(None, Some(default)) => {
+				self.expand_template_impl(default, output)?;
+			},
+		}
 
-fn parse_template<'a>(source: &'a [u8], range: &std::ops::Range<usize>) -> Result<Vec<TemplatePart<'a>>, Error> {
-	let mut parts = Vec::new();
-	let mut finger = range.start;
-	while let Some(part) = parse_template_one_step(finger, source, range)? {
-		finger += part.size();
-		parts.push(part);
-	}
-
-	Ok(parts)
-}
-
-fn expand_template_part_variable<'a, M, F>(
-	variable: &Variable,
-	output: &mut Vec<u8>,
-	variables: &'a M,
-	to_bytes: &F,
-) -> Result<(), Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	F: Fn(&M::Value) -> &[u8],
-{
-	let value = variables.get(variable.name);
-	match (&value, &variable.default) {
-		(None, None) => {
-			return Err(error::NoSuchVariable {
-				position: variable.name_start,
-				name: variable.name.to_owned(),
-			}
-			.into())
-		},
-		(Some(value), _) => {
-			output.extend_from_slice(to_bytes(value));
-		},
-		(None, Some(default)) => {
-			expand_template_impl(default, output, variables, to_bytes)?;
-		},
+		Ok(())
 	}
 
-	Ok(())
-}
-
-fn expand_template_part_escaped_char(e: &EscapedCharTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
-	output.push(e.name);
-	Ok(())
-}
-
-fn expand_template_part_literal(l: &LiteralTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
-	output.extend_from_slice(l.text);
-	Ok(())
-}
-
-fn expand_template_part<'a, M, F>(
-	tp: &TemplatePart,
-	output: &mut Vec<u8>,
-	variables: &'a M,
-	to_bytes: &F,
-) -> Result<(), Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	F: Fn(&M::Value) -> &[u8],
-{
-	match tp {
-		TemplatePart::Literal(l) => expand_template_part_literal(l, output)?,
-		TemplatePart::Variable(v) => expand_template_part_variable(v, output, variables, to_bytes)?,
-		TemplatePart::EscapedChar(e) => expand_template_part_escaped_char(e, output)?,
+	fn expand_template_part_escaped_char(e: &EscapedCharTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
+		output.push(e.name);
+		Ok(())
 	}
 
-	Ok(())
-}
-
-fn expand_template_impl<'a, M, F>(
-	t: &Vec<TemplatePart>,
-	output: &mut Vec<u8>,
-	variables: &'a M,
-	to_bytes: &F,
-) -> Result<(), Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	F: Fn(&M::Value) -> &[u8],
-{
-	for part in t {
-		expand_template_part(part, output, variables, to_bytes)?;
+	fn expand_template_part_literal(l: &LiteralTemplate, output: &mut Vec<u8>) -> Result<(), Error> {
+		output.extend_from_slice(l.text);
+		Ok(())
 	}
 
-	Ok(())
-}
+	fn expand_template_part(&self,
+		tp: &TemplatePart,
+		output: &mut Vec<u8>,
+	) -> Result<(), Error>
+	{
+		match tp {
+			TemplatePart::Literal(l) => Self::expand_template_part_literal(l, output)?,
+			TemplatePart::Variable(v) => self.expand_template_part_variable(v, output)?,
+			TemplatePart::EscapedChar(e) => Self::expand_template_part_escaped_char(e, output)?,
+		}
 
-/// takes a template and variable map to generate output
-fn expand_template<'a, M>(t: &Vec<TemplatePart>, variables: &'a M, source_size: Option<usize>) -> Result<String, Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	M::Value: AsRef<str>,
-{
-	let output = evaluate_template_to_bytes(t, variables, source_size)?;
-	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
-	unsafe { Ok(String::from_utf8_unchecked(output)) }
-}
+		Ok(())
+	}
 
-fn evaluate_template_to_bytes<'a, M>(
-	t: &Vec<TemplatePart>,
-	variables: &'a M,
-	source_size: Option<usize>,
-) -> Result<Vec<u8>, Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	M::Value: AsRef<str>,
-{
-	let source_size = if let Some(source_size) = source_size {
-		source_size
-	} else {
-		0
-	};
-	let mut output = Vec::with_capacity(source_size + source_size / 10);
-	expand_template_impl(t, &mut output, variables, &|x| x.as_ref().as_bytes())?;
-	Ok(output)
-}
+	fn expand_template_impl(&self,
+		t: &Vec<TemplatePart>,
+		output: &mut Vec<u8>,
+	) -> Result<(), Error>
+	{
+		for part in t {
+			self.expand_template_part(part, output)?;
+		}
 
-/// does one sub-step of substitute.
-pub fn substitute_one<'a, M>(source: &str, variables: &'a M) -> Result<(usize, String), Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	M::Value: AsRef<str>,
-{
-	let next_part = parse_template_one_step(0, source.as_bytes(), &(0..source.len()))?;
+		Ok(())
+	}
 
-	if let Some(part) = next_part {
-		let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-		expand_template_part(&part, &mut output, variables, &|x| x.as_ref().as_bytes())?;
+	/// takes a template and variable map to generate output
+	fn expand_template_parts_vec(&self, t: &Vec<TemplatePart>, source_size: Option<usize>) -> Result<String, Error>
+	{
+		let output = self.evaluate_template_to_bytes(t, source_size)?;
 		// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
-		Ok((part.size(), unsafe { String::from_utf8_unchecked(output) }))
-	} else {
-		Ok((0, "".into()))
+		unsafe { Ok(String::from_utf8_unchecked(output)) }
+	}
+
+	fn expand_template(&self, t: &Template) -> Result<String, Error>
+	{
+		self.expand_template_parts_vec(&t.parts, Some(t.source.len()))
+	}
+
+	fn evaluate_template_to_bytes(&self,
+		t: &Vec<TemplatePart>,
+		source_size: Option<usize>,
+	) -> Result<Vec<u8>, Error>
+	{
+		let source_size = if let Some(source_size) = source_size {
+			source_size
+		} else {
+			0
+		};
+		let mut output = Vec::with_capacity(source_size + source_size / 10);
+		self.expand_template_impl(t, &mut output)?;
+		Ok(output)
+	}
+
+}
+
+/// provides convenient access to one-by-one step-wise substitution
+#[derive(Debug)]
+pub struct VariableSubstituter<'a, M, F>
+where
+	M: VariableMap<'a> + ?Sized,
+	M::Value: AsRef<str>,
+	F: Fn(&M::Value) -> &[u8],
+{
+	parse_cfg: &'a TemplateParser,
+	expand_cfg: &'a TemplateExpander<'a, M, F>,
+}
+
+impl<'a, M, F> VariableSubstituter<'a, M, F>
+where
+	M: VariableMap<'a> + ?Sized,
+	M::Value: AsRef<str>,
+	F: Fn(&M::Value) -> &[u8],
+{
+	/// does one sub-step of substitute.
+	pub fn substitute_one<'b>(&self, source: &'b str) -> Result<(usize, String), Error>
+	{
+		let next_part = self.parse_cfg.parse_template_one_step(0, source.as_bytes(), &(0..source.len()))?;
+
+		if let Some(part) = next_part {
+			let mut output = Vec::with_capacity(source.len() + source.len() / 10);
+			self.expand_cfg.expand_template_part(&part, &mut output)?;
+			// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
+			Ok((part.size(), unsafe { String::from_utf8_unchecked(output) }))
+		} else {
+			Ok((0, "".into()))
+		}
 	}
 }
 
@@ -366,113 +452,145 @@ struct Variable<'a> {
 	default: Option<Vec<TemplatePart<'a>>>,
 }
 
-/// Parse a variable from source at the given position.
-///
-/// The finger must be the position of the dollar sign in the source.
-fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
-	if finger == source.len() {
-		return Err(error::MissingVariableName {
-			position: finger,
-			len: 1,
+impl TemplateParser {
+
+	fn check_variable_name_for_validity(&self, finger: usize, name: &str) -> Result<(), Error>
+	{
+		if self.allow_variable_name_starting_with_number {
+			return Ok(());
 		}
-		.into());
+
+		let c = name.as_bytes()[0];
+		let starts_with_digit = c.is_ascii_digit();
+		if starts_with_digit {
+			let all_digits = name.as_bytes().iter().map(u8::is_ascii_digit).reduce(|acc, e| acc && e).unwrap();
+			if all_digits {
+				Ok(())
+			} else {
+				Err(Error::UnexpectedCharacter(error::UnexpectedCharacter {
+					position: finger, character: error::CharOrByte::Byte(c), expected: error::ExpectedCharacter {
+						message: "0..9 not allowed as variable name start!" } }))
+			}
+		} else {
+			Ok(())
+		}
 	}
-	if source[finger + 1] == b'{' {
-		parse_braced_variable(source, finger)
-	} else {
-		let name_end = match source[finger + 1..]
+
+	/// Parse a variable from source at the given position.
+	///
+	/// The finger must be the position of the dollar sign in the source.
+	fn parse_variable<'a>(&self, source: &'a [u8], finger: usize) -> Result<Variable<'a>, Error> {
+		if finger == source.len() {
+			return Err(error::MissingVariableName {
+				position: finger,
+				len: 1,
+			}
+			.into());
+		}
+		if source[finger + 1] == b'{' {
+			self.parse_braced_variable(source, finger)
+		} else {
+			let name_end = match source[finger + 1..]
+				.iter()
+				.position(|&c| !c.is_ascii_alphanumeric() && c != b'_')
+			{
+				Some(0) => {
+					return Err(error::MissingVariableName {
+						position: finger,
+						len: 1,
+					}
+					.into())
+				},
+				Some(x) => finger + 1 + x,
+				None => source.len(),
+			};
+			let name = std::str::from_utf8(&source[finger + 1..name_end]).unwrap();
+			self.check_variable_name_for_validity(finger, name)?;
+			Ok(Variable {
+				name,
+				name_start: finger + 1,
+				default: None,
+				part_start: finger,
+				part_end: name_end,
+			})
+		}
+	}
+
+	/// Parse a braced variable in the form of "${name[:default]} from source at the given position.
+	///
+	/// The finger must be the position of the dollar sign in the source.
+	fn parse_braced_variable<'a>(&self, source: &'a[u8], finger: usize) -> Result<Variable<'a>, Error> {
+		let name_start = finger + 2;
+		if name_start >= source.len() {
+			return Err(error::MissingVariableName {
+				position: finger,
+				len: 2,
+			}
+			.into());
+		}
+
+		// Get the first sequence of alphanumeric characters and underscores for the variable name.
+		let name_end = match source[name_start..]
 			.iter()
 			.position(|&c| !c.is_ascii_alphanumeric() && c != b'_')
 		{
 			Some(0) => {
 				return Err(error::MissingVariableName {
 					position: finger,
-					len: 1,
+					len: 2,
 				}
 				.into())
 			},
-			Some(x) => finger + 1 + x,
+			Some(x) => name_start + x,
 			None => source.len(),
 		};
-		Ok(Variable {
-			name: std::str::from_utf8(&source[finger + 1..name_end]).unwrap(),
-			name_start: finger + 1,
-			default: None,
+
+		// If the name extends to the end, we're missing a closing brace.
+		if name_end == source.len() {
+			return Err(error::MissingClosingBrace { position: finger + 1 }.into());
+		}
+
+		// If there is a closing brace after the name, there is no default value and we're done.
+		if source[name_end] == b'}' {
+			let name = std::str::from_utf8(&source[name_start..name_end]).unwrap();
+			self.check_variable_name_for_validity(finger, name)?;
+			return Ok(Variable {
+				name,
+				name_start,
+				default: None,
+				part_start: finger,
+				part_end: name_end + 1,
+			});
+
+		// If there is something other than a closing brace or colon after the name, it's an error.
+		} else if source[name_end] != b':' {
+			return Err(error::UnexpectedCharacter {
+				position: name_end,
+				character: get_maybe_char_at(source, name_end),
+				expected: error::ExpectedCharacter {
+					message: "a closing brace ('}') or colon (':')",
+				},
+			}
+			.into());
+		}
+
+		// If there is no un-escaped closing brace, it's missing.
+		let end = finger
+			+ find_non_escaped(b'}', &source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
+
+		let default_value = self.parse_template_range(source, &(name_end + 1..end))?;
+
+		let name = std::str::from_utf8(&source[name_start..name_end]).unwrap();
+		self.check_variable_name_for_validity(finger, name)?;
+		Ok(Variable::<'a> {
+			name,
+			name_start,
+			default: Some(default_value),
 			part_start: finger,
-			part_end: name_end,
+			part_end: end + 1,
 		})
 	}
-}
 
-/// Parse a braced variable in the form of "${name[:default]} from source at the given position.
-///
-/// The finger must be the position of the dollar sign in the source.
-fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
-	let name_start = finger + 2;
-	if name_start >= source.len() {
-		return Err(error::MissingVariableName {
-			position: finger,
-			len: 2,
-		}
-		.into());
-	}
-
-	// Get the first sequence of alphanumeric characters and underscores for the variable name.
-	let name_end = match source[name_start..]
-		.iter()
-		.position(|&c| !c.is_ascii_alphanumeric() && c != b'_')
-	{
-		Some(0) => {
-			return Err(error::MissingVariableName {
-				position: finger,
-				len: 2,
-			}
-			.into())
-		},
-		Some(x) => name_start + x,
-		None => source.len(),
-	};
-
-	// If the name extends to the end, we're missing a closing brace.
-	if name_end == source.len() {
-		return Err(error::MissingClosingBrace { position: finger + 1 }.into());
-	}
-
-	// If there is a closing brace after the name, there is no default value and we're done.
-	if source[name_end] == b'}' {
-		return Ok(Variable {
-			name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
-			name_start,
-			default: None,
-			part_start: finger,
-			part_end: name_end + 1,
-		});
-
-	// If there is something other than a closing brace or colon after the name, it's an error.
-	} else if source[name_end] != b':' {
-		return Err(error::UnexpectedCharacter {
-			position: name_end,
-			character: get_maybe_char_at(source, name_end),
-			expected: error::ExpectedCharacter {
-				message: "a closing brace ('}') or colon (':')",
-			},
-		}
-		.into());
-	}
-
-	// If there is no un-escaped closing brace, it's missing.
-	let end = finger
-		+ find_non_escaped(b'}', &source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
-
-	let default_value = parse_template(source, &(name_end + 1..end))?;
-
-	Ok(Variable {
-		name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
-		name_start,
-		default: Some(default_value),
-		part_start: finger,
-		part_end: end + 1,
-	})
 }
 
 /// Get the prefix from the input that is valid UTF-8 as [`str`].
@@ -784,6 +902,20 @@ mod test {
 	}
 
 	#[test]
+	fn test_substitute_silent_missing_variable() {
+		let map: BTreeMap<String, String> = BTreeMap::new();
+
+		let source = "Hello ${name}. Hello ${name2:World}!";
+		let parser = TemplateParser{allow_variable_name_starting_with_number: true};
+		let template = parser.parse(source).unwrap();
+		let expander = TemplateExpander::new(&map, &from_str_to_bytes)
+			.set_silent_missing_variables(true);
+
+		let result = expander.expand_template(&template).unwrap();
+		assert_eq!(result, "Hello . Hello World!");
+	}
+
+	#[test]
 	fn test_dyn_variable_map() {
 		let mut variables = BTreeMap::new();
 		variables.insert(String::from("aap"), String::from("noot"));
@@ -811,37 +943,59 @@ mod test {
 	fn test_substitute_one_step_variable_and_escape_sequence() {
 		let mut variables = BTreeMap::new();
 		variables.insert(String::from("NAME"), String::from("subst"));
+		let subst = VariableSubstituter {
+			parse_cfg: &TemplateParser::default(),
+			expand_cfg: &TemplateExpander::new(&variables, &from_str_to_bytes),
+		};
 
 		let source = r"hello $NAME. Nice\$to meet you $NAME.";
-		assert_eq!(substitute_one(source, &variables).unwrap(), (6, "hello ".into()));
-		assert_eq!(substitute_one(&source[6..], &variables).unwrap(), (5, "subst".into()));
+		assert!(subst.substitute_one(source).unwrap() == (6, "hello ".into()));
+		assert_eq!(subst.substitute_one(&source[6..]).unwrap(), (5, "subst".into()));
 		assert_eq!(
-			substitute_one(&source[6 + 5..], &variables).unwrap(),
+			subst.substitute_one(&source[6 + 5..]).unwrap(),
 			(6, ". Nice".into())
 		);
 		assert_eq!(
-			substitute_one(&source[6 + 5 + 6..], &variables).unwrap(),
+			subst.substitute_one(&source[6 + 5 + 6..]).unwrap(),
 			(2, "$".into())
 		);
 		assert_eq!(
-			substitute_one(&source[6 + 5 + 6 + 2..], &variables).unwrap(),
+			subst.substitute_one(&source[6 + 5 + 6 + 2..]).unwrap(),
 			(12, "to meet you ".into())
 		);
 		assert_eq!(
-			substitute_one(&source[6 + 5 + 6 + 2 + 12..], &variables).unwrap(),
+			subst.substitute_one(&source[6 + 5 + 6 + 2 + 12..]).unwrap(),
 			(5, "subst".into())
 		);
 		assert_eq!(
-			substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5..], &variables).unwrap(),
+			subst.substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5..]).unwrap(),
 			(1, ".".into())
 		);
 		assert_eq!(
-			substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5 + 1..], &variables).unwrap(),
+			subst.substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5 + 1..]).unwrap(),
 			(0, "".into())
 		);
 		assert_eq!(
-			substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5 + 1..], &variables).unwrap(),
+			subst.substitute_one(&source[6 + 5 + 6 + 2 + 12 + 5 + 1..]).unwrap(),
 			(0, "".into())
 		);
+	}
+
+	#[test]
+	fn test_substitute_one_step_invalid_variable_name_due_to_number_at_begin() {
+		let mut variables = BTreeMap::new();
+		variables.insert(String::from("NAME"), String::from("subst"));
+		variables.insert(String::from("1"), String::from("hello"));
+		variables.insert(String::from("100"), String::from("world"));
+		let subst = VariableSubstituter {
+			parse_cfg: &TemplateParser{allow_variable_name_starting_with_number: false},
+			expand_cfg: &TemplateExpander::new(&variables, &from_str_to_bytes),
+		};
+
+		subst.substitute_one("$NAME").unwrap();
+		subst.substitute_one("$1NAME").unwrap_err();
+		subst.substitute_one("$123NAME").unwrap_err();
+		subst.substitute_one("$1").unwrap();
+		subst.substitute_one("$100").unwrap();
 	}
 }
