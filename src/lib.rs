@@ -79,14 +79,15 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let parser = TemplateParser {allow_variable_name_starting_with_number: true};
+	let parser = TemplateParser {
+		allow_variable_name_starting_with_number: true,
+	};
 	let template = parser.parse(source)?;
 	let expander = TemplateExpander::new(variables, &from_str_to_bytes::<M::Value>);
 	expander.expand_template(&template)
 }
 
-fn from_bytes_to_bytes<V: AsRef<[u8]>>(x: &V) -> &[u8]
-{
+fn from_bytes_to_bytes<V: AsRef<[u8]>>(x: &V) -> &[u8] {
 	x.as_ref()
 }
 
@@ -106,7 +107,9 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<[u8]>,
 {
-	let parser = TemplateParser {allow_variable_name_starting_with_number: true};
+	let parser = TemplateParser {
+		allow_variable_name_starting_with_number: true,
+	};
 	let template = parser.parse_template_range(source, &(0..source.len()))?;
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
 	let expander = TemplateExpander::new(variables, &from_bytes_to_bytes);
@@ -164,7 +167,6 @@ struct EscapedCharTemplate {
 }
 
 impl TemplateParser {
-
 	fn parse_template_one_step<'a>(
 		&self,
 		finger: usize,
@@ -201,8 +203,8 @@ impl TemplateParser {
 #[derive(Debug)]
 pub struct TemplateExpander<'a, M, F>
 where
-		M: VariableMap<'a> + ?Sized,
-		F: Fn(&M::Value) -> &[u8],
+	M: VariableMap<'a> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
 {
 	variables: &'a M,
 	to_bytes: &'a F,
@@ -214,8 +216,7 @@ where
 	M: VariableMap<'a> + ?Sized,
 	F: Fn(&M::Value) -> &[u8],
 {
-	fn new(variables: &'a M, to_bytes: &'a F) -> Self
-	{
+	fn new(variables: &'a M, to_bytes: &'a F) -> Self {
 		Self {
 			variables,
 			to_bytes,
@@ -224,8 +225,7 @@ where
 	}
 }
 
-fn from_str_to_bytes<V: AsRef<str>>(x: &V) -> &[u8]
-{
+fn from_str_to_bytes<V: AsRef<str>>(x: &V) -> &[u8] {
 	x.as_ref().as_bytes()
 }
 
@@ -268,13 +268,14 @@ pub struct TemplateParser {
 }
 
 impl Default for TemplateParser {
-    fn default() -> Self {
-        Self { allow_variable_name_starting_with_number: true }
-    }
+	fn default() -> Self {
+		Self {
+			allow_variable_name_starting_with_number: true,
+		}
+	}
 }
 
 impl TemplateParser {
-
 	/// Creates a new template from a string
 	pub fn parse<'a>(&'a self, source: &'a str) -> Result<Template<'a>, Error> {
 		Ok(Template {
@@ -283,7 +284,11 @@ impl TemplateParser {
 		})
 	}
 
-	fn parse_template_range<'a>(&self, source: &'a [u8], range: &std::ops::Range<usize>) -> Result<Vec<TemplatePart<'a>>, Error> {
+	fn parse_template_range<'a>(
+		&self,
+		source: &'a [u8],
+		range: &std::ops::Range<usize>,
+	) -> Result<Vec<TemplatePart<'a>>, Error> {
 		let mut parts: Vec<TemplatePart<'a>> = Vec::<TemplatePart<'a>>::new();
 		let mut finger = range.start;
 		while let Some(part) = self.parse_template_one_step(finger, source, range)? {
@@ -296,21 +301,19 @@ impl TemplateParser {
 
 	/// parses a new template from a sequence of bytes
 	pub fn parse_from_bytes<'a>(&'a self, source: &'a [u8]) -> Result<Template<'a>, Error> {
-		Ok(Template { source, parts: self.parse_template_range(source, &(0..source.len()))? })
+		Ok(Template {
+			source,
+			parts: self.parse_template_range(source, &(0..source.len()))?,
+		})
 	}
 }
 
 impl<'a, M, F> TemplateExpander<'a, M, F>
 where
-		M: VariableMap<'a> + ?Sized,
-		F: Fn(&M::Value) -> &[u8],
+	M: VariableMap<'a> + ?Sized,
+	F: Fn(&M::Value) -> &[u8],
 {
-
-	fn expand_template_part_variable(&self,
-		variable: &Variable,
-		output: &mut Vec<u8>,
-	) -> Result<(), Error>
-	{
+	fn expand_template_part_variable(&self, variable: &Variable, output: &mut Vec<u8>) -> Result<(), Error> {
 		let value = self.variables.get(variable.name);
 		match (&value, &variable.default) {
 			(None, None) => {
@@ -319,7 +322,7 @@ where
 						position: variable.name_start,
 						name: variable.name.to_owned(),
 					}
-					.into())
+					.into());
 				}
 			},
 			(Some(value), _) => {
@@ -343,11 +346,7 @@ where
 		Ok(())
 	}
 
-	fn expand_template_part(&self,
-		tp: &TemplatePart,
-		output: &mut Vec<u8>,
-	) -> Result<(), Error>
-	{
+	fn expand_template_part(&self, tp: &TemplatePart, output: &mut Vec<u8>) -> Result<(), Error> {
 		match tp {
 			TemplatePart::Literal(l) => Self::expand_template_part_literal(l, output)?,
 			TemplatePart::Variable(v) => self.expand_template_part_variable(v, output)?,
@@ -357,11 +356,7 @@ where
 		Ok(())
 	}
 
-	fn expand_template_impl(&self,
-		t: &Vec<TemplatePart>,
-		output: &mut Vec<u8>,
-	) -> Result<(), Error>
-	{
+	fn expand_template_impl(&self, t: &Vec<TemplatePart>, output: &mut Vec<u8>) -> Result<(), Error> {
 		for part in t {
 			self.expand_template_part(part, output)?;
 		}
@@ -370,23 +365,17 @@ where
 	}
 
 	/// takes a template and variable map to generate output
-	fn expand_template_parts_vec(&self, t: &Vec<TemplatePart>, source_size: Option<usize>) -> Result<String, Error>
-	{
+	fn expand_template_parts_vec(&self, t: &Vec<TemplatePart>, source_size: Option<usize>) -> Result<String, Error> {
 		let output = self.evaluate_template_to_bytes(t, source_size)?;
 		// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
 		unsafe { Ok(String::from_utf8_unchecked(output)) }
 	}
 
-	fn expand_template(&self, t: &Template) -> Result<String, Error>
-	{
+	fn expand_template(&self, t: &Template) -> Result<String, Error> {
 		self.expand_template_parts_vec(&t.parts, Some(t.source.len()))
 	}
 
-	fn evaluate_template_to_bytes(&self,
-		t: &Vec<TemplatePart>,
-		source_size: Option<usize>,
-	) -> Result<Vec<u8>, Error>
-	{
+	fn evaluate_template_to_bytes(&self, t: &Vec<TemplatePart>, source_size: Option<usize>) -> Result<Vec<u8>, Error> {
 		let source_size = if let Some(source_size) = source_size {
 			source_size
 		} else {
@@ -396,7 +385,6 @@ where
 		self.expand_template_impl(t, &mut output)?;
 		Ok(output)
 	}
-
 }
 
 /// provides convenient access to one-by-one step-wise substitution
@@ -418,9 +406,10 @@ where
 	F: Fn(&M::Value) -> &[u8],
 {
 	/// does one sub-step of substitute.
-	pub fn substitute_one<'b>(&self, source: &'b str) -> Result<(usize, String), Error>
-	{
-		let next_part = self.parse_cfg.parse_template_one_step(0, source.as_bytes(), &(0..source.len()))?;
+	pub fn substitute_one(&self, source: &str) -> Result<(usize, String), Error> {
+		let next_part = self
+			.parse_cfg
+			.parse_template_one_step(0, source.as_bytes(), &(0..source.len()))?;
 
 		if let Some(part) = next_part {
 			let mut output = Vec::with_capacity(source.len() + source.len() / 10);
@@ -453,9 +442,7 @@ struct Variable<'a> {
 }
 
 impl TemplateParser {
-
-	fn check_variable_name_for_validity(&self, finger: usize, name: &str) -> Result<(), Error>
-	{
+	fn check_variable_name_for_validity(&self, finger: usize, name: &str) -> Result<(), Error> {
 		if self.allow_variable_name_starting_with_number {
 			return Ok(());
 		}
@@ -463,13 +450,22 @@ impl TemplateParser {
 		let c = name.as_bytes()[0];
 		let starts_with_digit = c.is_ascii_digit();
 		if starts_with_digit {
-			let all_digits = name.as_bytes().iter().map(u8::is_ascii_digit).reduce(|acc, e| acc && e).unwrap();
+			let all_digits = name
+				.as_bytes()
+				.iter()
+				.map(u8::is_ascii_digit)
+				.reduce(|acc, e| acc && e)
+				.unwrap();
 			if all_digits {
 				Ok(())
 			} else {
 				Err(Error::UnexpectedCharacter(error::UnexpectedCharacter {
-					position: finger, character: error::CharOrByte::Byte(c), expected: error::ExpectedCharacter {
-						message: "0..9 not allowed as variable name start!" } }))
+					position: finger,
+					character: error::CharOrByte::Byte(c),
+					expected: error::ExpectedCharacter {
+						message: "0..9 not allowed as variable name start!",
+					},
+				}))
 			}
 		} else {
 			Ok(())
@@ -519,7 +515,7 @@ impl TemplateParser {
 	/// Parse a braced variable in the form of "${name[:default]} from source at the given position.
 	///
 	/// The finger must be the position of the dollar sign in the source.
-	fn parse_braced_variable<'a>(&self, source: &'a[u8], finger: usize) -> Result<Variable<'a>, Error> {
+	fn parse_braced_variable<'a>(&self, source: &'a [u8], finger: usize) -> Result<Variable<'a>, Error> {
 		let name_start = finger + 2;
 		if name_start >= source.len() {
 			return Err(error::MissingVariableName {
@@ -590,7 +586,6 @@ impl TemplateParser {
 			part_end: end + 1,
 		})
 	}
-
 }
 
 /// Get the prefix from the input that is valid UTF-8 as [`str`].
@@ -906,10 +901,11 @@ mod test {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
 		let source = "Hello ${name}. Hello ${name2:World}!";
-		let parser = TemplateParser{allow_variable_name_starting_with_number: true};
+		let parser = TemplateParser {
+			allow_variable_name_starting_with_number: true,
+		};
 		let template = parser.parse(source).unwrap();
-		let expander = TemplateExpander::new(&map, &from_str_to_bytes)
-			.set_silent_missing_variables(true);
+		let expander = TemplateExpander::new(&map, &from_str_to_bytes).set_silent_missing_variables(true);
 
 		let result = expander.expand_template(&template).unwrap();
 		assert_eq!(result, "Hello . Hello World!");
@@ -951,14 +947,8 @@ mod test {
 		let source = r"hello $NAME. Nice\$to meet you $NAME.";
 		assert!(subst.substitute_one(source).unwrap() == (6, "hello ".into()));
 		assert_eq!(subst.substitute_one(&source[6..]).unwrap(), (5, "subst".into()));
-		assert_eq!(
-			subst.substitute_one(&source[6 + 5..]).unwrap(),
-			(6, ". Nice".into())
-		);
-		assert_eq!(
-			subst.substitute_one(&source[6 + 5 + 6..]).unwrap(),
-			(2, "$".into())
-		);
+		assert_eq!(subst.substitute_one(&source[6 + 5..]).unwrap(), (6, ". Nice".into()));
+		assert_eq!(subst.substitute_one(&source[6 + 5 + 6..]).unwrap(), (2, "$".into()));
 		assert_eq!(
 			subst.substitute_one(&source[6 + 5 + 6 + 2..]).unwrap(),
 			(12, "to meet you ".into())
@@ -988,7 +978,9 @@ mod test {
 		variables.insert(String::from("1"), String::from("hello"));
 		variables.insert(String::from("100"), String::from("world"));
 		let subst = VariableSubstituter {
-			parse_cfg: &TemplateParser{allow_variable_name_starting_with_number: false},
+			parse_cfg: &TemplateParser {
+				allow_variable_name_starting_with_number: false,
+			},
 			expand_cfg: &TemplateExpander::new(&variables, &from_str_to_bytes),
 		};
 
