@@ -162,7 +162,7 @@ impl std::fmt::Display for InvalidEscapeSequence {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		if let Some(c) = self.character {
-			write!(f, "Invalid escape sequence: \\{}", c)
+			write!(f, "Invalid escape sequence: \\{c}")
 		} else {
 			write!(f, "Invalid escape sequence: missing escape character")
 		}
@@ -287,7 +287,7 @@ impl Error {
 	pub fn source_range(&self) -> std::ops::Range<usize> {
 		let (start, len) = match &self {
 			Self::InvalidEscapeSequence(e) => {
-				let char_len = e.character.map(|x| x.source_len()).unwrap_or(0);
+				let char_len = e.character.map_or(0, |x| x.source_len());
 				(e.position, 1 + char_len)
 			},
 			Self::MissingVariableName(e) => (e.position, e.len),
@@ -328,7 +328,7 @@ impl Error {
 		if line.width() > 60 {
 			return Ok(());
 		}
-		write!(f, "  {}\n  ", line)?;
+		write!(f, "  {line}\n  ")?;
 		write_underline(f, line, range)?;
 		writeln!(f)
 	}
@@ -374,7 +374,7 @@ mod test {
 	use assert2::check;
 
 	#[test]
-	fn test_char_or_byte_quoated_printable() {
+	fn test_char_or_byte_quoted_printable() {
 		use super::CharOrByte::{Byte, Char};
 		check!(Byte(0x81).quoted_printable().to_string() == r"'\x81'");
 		check!(Byte(0x79).quoted_printable().to_string() == r"'y'");

@@ -142,9 +142,9 @@ where
 						position: variable.name_start,
 						name: variable.name.to_owned(),
 					}
-					.into())
+					.into());
 				},
-				(Some(value), _) => {
+				(Some(value), _default) => {
 					output.extend_from_slice(to_bytes(value));
 				},
 				(None, Some(default)) => {
@@ -198,7 +198,7 @@ fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 					position: finger,
 					len: 1,
 				}
-				.into())
+				.into());
 			},
 			Some(x) => finger + 1 + x,
 			None => source.len(),
@@ -235,7 +235,7 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 				position: finger,
 				len: 2,
 			}
-			.into())
+			.into());
 		},
 		Some(x) => name_start + x,
 		None => source.len(),
@@ -302,7 +302,7 @@ fn get_maybe_char_at(data: &[u8], index: usize) -> error::CharOrByte {
 		!head.is_empty(),
 		"index out of bounds: data.len() is {} but index is {}",
 		data.len(),
-		index
+		index,
 	);
 
 	let head = valid_utf8_prefix(head);
@@ -359,6 +359,7 @@ fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod test {
 	use super::*;
 	use assert2::{assert, check, let_assert};
@@ -367,6 +368,7 @@ mod test {
 	#[test]
 	fn test_get_maybe_char_at() {
 		use error::CharOrByte::{Byte, Char};
+
 		assert!(get_maybe_char_at(b"hello", 0) == Char('h'));
 		assert!(get_maybe_char_at(b"he", 0) == Char('h'));
 		assert!(get_maybe_char_at(b"hello", 1) == Char('e'));

@@ -11,10 +11,10 @@ publish = ["crates-io"]
 keywords = ["substitution", "expansion", "variable", "parameter", "shell"]
 categories = ["template-engine", "value-formatting"]
 
-edition = "2018"
+edition = "2021"
 
 [features]
-yaml = ["serde", "serde_yaml"]
+yaml = ["dep:serde", "dep:serde_yaml"]
 
 [dependencies]
 memchr = "2.4.1"
