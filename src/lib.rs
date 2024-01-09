@@ -161,24 +161,24 @@ where
 
 /// A parsed variable.
 #[derive(Debug)]
-struct Variable<'a> {
+pub struct Variable<'a> {
 	/// The name of the variable.
-	name: &'a str,
+	pub name: &'a str,
 
 	/// The start position of the name in the source.
-	name_start: usize,
+	pub name_start: usize,
 
 	/// The default value of the variable.
-	default: Option<std::ops::Range<usize>>,
+	pub default: Option<std::ops::Range<usize>>,
 
 	/// The end position of the entire variable in the source.
-	end_position: usize,
+	pub end_position: usize,
 }
 
 /// Parse a variable from source at the given position.
 ///
 /// The finger must be the position of the dollar sign in the source.
-fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
+pub fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
 	if finger == source.len() {
 		return Err(error::MissingVariableName {
 			position: finger,
