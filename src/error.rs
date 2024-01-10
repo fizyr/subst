@@ -1,7 +1,8 @@
 //! Module containing error details.
 
 /// An error that can occur during variable substitution.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub enum Error {
 	/// The input string contains an invalid escape sequence.
 	InvalidEscapeSequence(InvalidEscapeSequence),
@@ -138,7 +139,8 @@ impl std::fmt::Display for CharOrByte {
 }
 
 /// The input string contains an invalid escape sequence.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct InvalidEscapeSequence {
 	/// The byte offset within the input where the error occurs.
 	///
@@ -168,7 +170,8 @@ impl std::fmt::Display for InvalidEscapeSequence {
 }
 
 /// The input string contains a variable placeholder without a variable name (`"${}"`).
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct MissingVariableName {
 	/// The byte offset within the input where the error occurs.
 	///
@@ -189,7 +192,8 @@ impl std::fmt::Display for MissingVariableName {
 }
 
 /// The input string contains an unexpected character.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct UnexpectedCharacter {
 	/// The byte offset within the input where the error occurs.
 	///
@@ -221,7 +225,8 @@ impl std::fmt::Display for UnexpectedCharacter {
 }
 
 /// A struct to describe what was expected instead of the unexpected character.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct ExpectedCharacter {
 	/// A human readable message to describe what is expected.
 	pub(crate) message: &'static str,
@@ -236,7 +241,8 @@ impl ExpectedCharacter {
 }
 
 /// The input string contains an unclosed variable placeholder.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct MissingClosingBrace {
 	/// The byte offset within the input where the error occurs.
 	///
@@ -254,7 +260,8 @@ impl std::fmt::Display for MissingClosingBrace {
 }
 
 /// The input string contains a placeholder for a variable that is not in the variable map.
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
 pub struct NoSuchVariable {
 	/// The byte offset within the input where the error occurs.
 	///
