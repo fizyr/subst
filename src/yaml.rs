@@ -2,6 +2,7 @@
 
 use serde::de::DeserializeOwned;
 
+use crate::Mode;
 use crate::VariableMap;
 
 /// Parse a struct from YAML data, after performing variable substitution on string values.
@@ -9,13 +10,13 @@ use crate::VariableMap;
 /// This function first parses the data into a [`serde_yaml::Value`],
 /// then performs variable substitution on all string values,
 /// and then parses it further into the desired type.
-pub fn from_slice<'a, T: DeserializeOwned, M>(data: &[u8], variables: &'a M) -> Result<T, Error>
+pub fn from_slice<'a, T: DeserializeOwned, M>(data: &[u8], variables: &'a M, mode: Mode) -> Result<T, Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	let mut value: serde_yaml::Value = serde_yaml::from_slice(data)?;
-	substitute_string_values(&mut value, variables)?;
+	substitute_string_values(&mut value, variables, mode)?;
 	Ok(serde_yaml::from_value(value)?)
 }
 
@@ -24,24 +25,28 @@ where
 /// This function first parses the data into a [`serde_yaml::Value`],
 /// then performs variable substitution on all string values,
 /// and then parses it further into the desired type.
-pub fn from_str<'a, T: DeserializeOwned, M>(data: &str, variables: &'a M) -> Result<T, Error>
+pub fn from_str<'a, T: DeserializeOwned, M>(data: &str, variables: &'a M, mode: Mode) -> Result<T, Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	let mut value: serde_yaml::Value = serde_yaml::from_str(data)?;
-	substitute_string_values(&mut value, variables)?;
+	substitute_string_values(&mut value, variables, mode)?;
 	Ok(serde_yaml::from_value(value)?)
 }
 
 /// Perform variable substitution on string values of a YAML value.
-pub fn substitute_string_values<'a, M>(value: &mut serde_yaml::Value, variables: &'a M) -> Result<(), crate::Error>
+pub fn substitute_string_values<'a, M>(
+	value: &mut serde_yaml::Value,
+	variables: &'a M,
+	mode: Mode,
+) -> Result<(), crate::Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	visit_string_values(value, |value| {
-		*value = crate::substitute(value.as_str(), variables)?;
+		*value = crate::substitute(value.as_str(), variables, mode)?;
 		Ok(())
 	})
 }
@@ -114,6 +119,7 @@ mod test {
 	use std::collections::HashMap;
 
 	use super::*;
+	use super::Mode::*;
 	use assert2::{assert, let_assert};
 
 	#[test]
@@ -133,7 +139,7 @@ mod test {
 				"bar: $bar\n",
 				"baz: $baz/with/stuff\n",
 			),
-			&variables,
+			&variables, Strict
 		));
 
 		let parsed: Struct = parsed;
@@ -158,7 +164,7 @@ mod test {
 				"bar: aap\n",
 				"baz: noot/with/stuff\n",
 			),
-			&crate::NoSubstitution,
+			&crate::NoSubstitution, Strict
 		));
 
 		let parsed: Struct = parsed;
@@ -183,7 +189,7 @@ mod test {
 				"bar: $bar\n",
 				"baz: $baz\n",
 			),
-			&variables,
+			&variables, Strict
 		));
 
 		let parsed: Struct = parsed;
@@ -208,7 +214,7 @@ mod test {
 				"bar: !!string $bar\n",
 				"baz: $baz\n",
 			),
-			&variables,
+			&variables, Strict
 		));
 
 		let parsed: Struct = parsed;
@@ -234,7 +240,7 @@ mod test {
 				"bar: $bar\n",
 				"baz: $baz/with/stuff\n",
 			),
-			variables,
+			variables, Strict
 		));
 
 		let parsed: Struct = parsed;
