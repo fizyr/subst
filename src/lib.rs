@@ -290,9 +290,9 @@ fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error
 		.into());
 	}
 
-	// If there is no un-escaped closing brace, it's missing.
-	let end = finger
-		+ find_non_escaped(b'}', &source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
+	// If there is no un-escaped closing brace pair, it's missing.
+	let end =
+		finger + find_closing_brace(&source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
 
 	Ok(Variable {
 		name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
@@ -336,16 +336,27 @@ fn get_maybe_char_at(data: &[u8], index: usize) -> error::CharOrByte {
 	}
 }
 
-/// Find the first non-escaped occurrence of a character.
-fn find_non_escaped(needle: u8, haystack: &[u8]) -> Option<usize> {
+/// Find the closing brace of recursive substitutions.
+fn find_closing_brace(haystack: &[u8]) -> Option<usize> {
 	let mut finger = 0;
+	// We need to count the first opening brace
+	let mut nested = -1;
 	while finger < haystack.len() {
-		let candidate = memchr::memchr2(b'\\', needle, &haystack[finger..])?;
+		let candidate = memchr::memchr3(b'\\', b'{', b'}', &haystack[finger..])?;
 		if haystack[finger + candidate] == b'\\' {
 			if candidate == haystack.len() - 1 {
 				return None;
 			}
 			finger += candidate + 2;
+		} else if haystack[finger + candidate] == b'{' {
+			if candidate == haystack.len() - 1 {
+				return None;
+			}
+			nested += 1;
+			finger += candidate + 1;
+		} else if nested != 0 {
+			nested -= 1;
+			finger += candidate + 1;
 		} else {
 			return Some(finger + candidate);
 		}
@@ -416,11 +427,11 @@ mod test {
 	}
 
 	#[test]
-	fn test_find_non_escaped() {
-		check!(find_non_escaped(b'$', b"$foo") == Some(0));
-		check!(find_non_escaped(b'$', b"\\$foo$") == Some(5));
-		check!(find_non_escaped(b'$', b"foo $bar") == Some(4));
-		check!(find_non_escaped(b'$', b"foo \\$$bar") == Some(6));
+	fn test_find_closing_brace() {
+		check!(find_closing_brace(b"${foo}") == Some(5));
+		check!(find_closing_brace(b"{\\{}foo") == Some(3));
+		check!(find_closing_brace(b"{{}}foo $bar") == Some(3));
+		check!(find_closing_brace(b"foo{\\}}bar") == Some(6));
 	}
 
 	#[test]
@@ -457,9 +468,19 @@ mod test {
 	#[test]
 	fn substitution_in_default_value() {
 		let mut map: BTreeMap<String, String> = BTreeMap::new();
+		check!(let Ok("Hello cruel $name!") = substitute("Hello ${not_name:cruel $name}!", &map, Partial).as_deref());
+		check!(let Ok("Hello cruel !") = substitute("Hello ${not_name:cruel $name}!", &map, Permissive).as_deref());
 		map.insert("name".into(), "world".into());
 		for mode in [Strict,Partial,Permissive]{
 			check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel $name}!", &map, mode).as_deref());
+		}
+	}
+
+	#[test]
+	fn recursive_substitution_in_default_value() {
+		let map: BTreeMap<String, String> = BTreeMap::new();
+		for mode in [Strict,Partial,Permissive]{
+			check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel ${name:world}}!", &map, mode).as_deref());
 		}
 	}
 
