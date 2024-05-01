@@ -23,7 +23,7 @@
 //! # use std::collections::HashMap;
 //! let mut variables = HashMap::new();
 //! variables.insert("name", "world");
-//! assert_eq!(subst::substitute("Hello $name!", &variables)?, "Hello world!");
+//! assert_eq!(subst::substitute("Hello $name!", &variables, subst::Mode::Strict)?, "Hello world!");
 //! # Ok(())
 //! # }
 //! ```
@@ -34,8 +34,8 @@
 //! # fn main() -> Result<(), subst::Error> {
 //! # std::env::set_var("XDG_CONFIG_HOME", "/home/user/.config");
 //! assert_eq!(
-//!   subst::substitute("$XDG_CONFIG_HOME/my-app/config.toml", &subst::Env)?,
-//!   "/home/user/.config/my-app/config.toml",
+//!   subst::substitute("$XDG_CONFIG_HOME/my-app/config.toml", &subst::Env, subst::Mode::Strict)?,
+//!   "/home/user/.config/my-app/config.toml"
 //! );
 //! # Ok(())
 //! # }
@@ -48,7 +48,7 @@
 //! # use std::collections::HashMap;
 //! let mut variables = HashMap::new();
 //! variables.insert("name", b"world");
-//! assert_eq!(subst::substitute_bytes(b"Hello $name!", &variables)?, b"Hello world!");
+//! assert_eq!(subst::substitute_bytes(b"Hello $name!", &variables, subst::Mode::Strict)?, b"Hello world!");
 //! # Ok(())
 //! # }
 //! ```
@@ -63,6 +63,17 @@ pub use map::*;
 #[cfg(feature = "yaml")]
 pub mod yaml;
 
+/// Substitution mode
+#[derive(Debug, Copy, Clone)]
+pub enum Mode {
+	/// Do not allow missing variables.
+	Strict,
+	/// Do not substitute missing variables without default.
+	Partial,
+	/// Substitute missing variables with and empty string.
+	Permissive,
+}
+
 /// Substitute variables in a string.
 ///
 /// Variables have the form `$NAME`, `${NAME}` or `${NAME:default}`.
@@ -73,15 +84,20 @@ pub mod yaml;
 ///
 /// You can pass either a [`HashMap`][std::collections::HashMap], [`BTreeMap`][std::collections::BTreeMap] or [`Env`] as the `variables` parameter.
 /// The maps must have [`&str`] or [`String`] keys, and the values must be [`AsRef<str>`].
-pub fn substitute<'a, M>(source: &str, variables: &'a M) -> Result<String, Error>
+pub fn substitute<'a, M>(source: &str, variables: &'a M, mode: Mode) -> Result<String, Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source.as_bytes(), 0..source.len(), variables, &|x| {
-		x.as_ref().as_bytes()
-	})?;
+	substitute_impl(
+		&mut output,
+		source.as_bytes(),
+		0..source.len(),
+		variables,
+		&|x| x.as_ref().as_bytes(),
+		mode,
+	)?;
 	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
 	unsafe { Ok(String::from_utf8_unchecked(output)) }
 }
@@ -97,13 +113,13 @@ where
 /// You can pass either a [`HashMap`][std::collections::HashMap], [`BTreeMap`][std::collections::BTreeMap] as the `variables` parameter.
 /// The maps must have [`&str`] or [`String`] keys, and the values must be [`AsRef<[u8]>`].
 /// On Unix platforms, you can also use [`EnvBytes`].
-pub fn substitute_bytes<'a, M>(source: &[u8], variables: &'a M) -> Result<Vec<u8>, Error>
+pub fn substitute_bytes<'a, M>(source: &[u8], variables: &'a M, mode: Mode) -> Result<Vec<u8>, Error>
 where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<[u8]>,
 {
 	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source, 0..source.len(), variables, &|x| x.as_ref())?;
+	substitute_impl(&mut output, source, 0..source.len(), variables, &|x| x.as_ref(), mode)?;
 	Ok(output)
 }
 
@@ -117,6 +133,7 @@ fn substitute_impl<'a, M, F>(
 	range: std::ops::Range<usize>,
 	variables: &'a M,
 	to_bytes: &F,
+	mode: Mode,
 ) -> Result<(), Error>
 where
 	M: VariableMap<'a> + ?Sized,
@@ -138,17 +155,23 @@ where
 			let value = variables.get(variable.name);
 			match (&value, &variable.default) {
 				(None, None) => {
-					return Err(error::NoSuchVariable {
-						position: variable.name_start,
-						name: variable.name.to_owned(),
-					}
-					.into());
+					match mode {
+						Mode::Strict => {
+							return Err(error::NoSuchVariable {
+								position: variable.name_start,
+								name: variable.name.to_owned(),
+							}
+							.into());
+						},
+						Mode::Partial => output.extend_from_slice(&source[next..variable.end_position]),
+						Mode::Permissive => (),
+					};
 				},
 				(Some(value), _default) => {
 					output.extend_from_slice(to_bytes(value));
 				},
 				(None, Some(default)) => {
-					substitute_impl(output, source, default.clone(), variables, to_bytes)?;
+					substitute_impl(output, source, default.clone(), variables, to_bytes, mode)?;
 				},
 			};
 			finger = variable.end_position;
@@ -362,6 +385,7 @@ fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
 #[rustfmt::skip]
 mod test {
 	use super::*;
+	use super::Mode::*;
 	use assert2::{assert, check, let_assert};
 	use std::collections::BTreeMap;
 
@@ -403,41 +427,60 @@ mod test {
 	fn test_substitute() {
 		let mut map: BTreeMap<String, String> = BTreeMap::new();
 		map.insert("name".into(), "world".into());
-		check!(let Ok("Hello world!") = substitute("Hello $name!", &map).as_deref());
-		check!(let Ok("Hello world!") = substitute("Hello ${name}!", &map).as_deref());
-		check!(let Ok("Hello world!") = substitute("Hello ${name:not-world}!", &map).as_deref());
-		check!(let Ok("Hello world!") = substitute("Hello ${not_name:world}!", &map).as_deref());
+		// Strinct
+		for mode in [Strict,Partial,Permissive]{
+			check!(let Ok("Hello world!") = substitute("Hello $name!", &map, mode).as_deref());
+			check!(let Ok("Hello world!") = substitute("Hello ${name}!", &map, mode).as_deref());
+			check!(let Ok("Hello world!") = substitute("Hello ${name:not-world}!", &map, mode).as_deref());
+			check!(let Ok("Hello world!") = substitute("Hello ${not_name:world}!", &map, mode).as_deref());
+		}
 
 		let mut map: BTreeMap<&str, &str> = BTreeMap::new();
 		map.insert("name", "world");
-		check!(let Ok("Hello world!") = substitute("Hello $name!", &map).as_deref());
-		check!(let Ok("Hello world!") = substitute("Hello ${name}!", &map).as_deref());
-		check!(let Ok("Hello world!") = substitute("Hello ${name:not-world}!", &map).as_deref());
-		check!(let Ok("Hello world!") = substitute("Hello ${not_name:world}!", &map).as_deref());
+		for mode in [Strict,Partial,Permissive]{
+			check!(let Ok("Hello world!") = substitute("Hello $name!", &map,mode).as_deref());
+			check!(let Ok("Hello world!") = substitute("Hello ${name}!", &map,mode).as_deref());
+			check!(let Ok("Hello world!") = substitute("Hello ${name:not-world}!", &map,mode).as_deref());
+			check!(let Ok("Hello world!") = substitute("Hello ${not_name:world}!", &map,mode).as_deref());
+		}
+	}
+
+	#[test]
+	fn test_substitute_non_strict(){
+		let map: BTreeMap<String, String> = BTreeMap::new();
+		check!(let Ok("Hello $name!") = substitute("Hello $name!", &map, Partial).as_deref());
+		check!(let Ok("Hello ${name}!") = substitute("Hello ${name}!", &map, Partial).as_deref());
+		check!(let Ok("Hello !") = substitute("Hello $name!", &map, Permissive).as_deref());
+		check!(let Ok("Hello !") = substitute("Hello ${name}!", &map, Permissive).as_deref());
 	}
 
 	#[test]
 	fn substitution_in_default_value() {
 		let mut map: BTreeMap<String, String> = BTreeMap::new();
 		map.insert("name".into(), "world".into());
-		check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel $name}!", &map).as_deref());
+		for mode in [Strict,Partial,Permissive]{
+			check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel $name}!", &map, mode).as_deref());
+		}
 	}
 
 	#[test]
 	fn test_substitute_bytes() {
 		let mut map: BTreeMap<String, Vec<u8>> = BTreeMap::new();
 		map.insert("name".into(), b"world"[..].into());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello $name!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name}!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name:not-world}!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${not_name:world}!", &map).as_deref());
-
+		for mode in [Strict,Partial,Permissive]{
+		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello $name!", &map, mode).as_deref());
+		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name}!", &map, mode).as_deref());
+		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name:not-world}!", &map, mode).as_deref());
+		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${not_name:world}!", &map, mode).as_deref());
+		}
 		let mut map: BTreeMap<&str, &[u8]> = BTreeMap::new();
 		map.insert("name", b"world");
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello $name!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name}!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name:not-world}!", &map).as_deref());
-		check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${not_name:world}!", &map).as_deref());
+		for mode in [Strict,Partial,Permissive]{
+			check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello $name!", &map, mode).as_deref());
+			check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name}!", &map, mode).as_deref());
+			check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${name:not-world}!", &map, mode).as_deref());
+			check!(let Ok(b"Hello world!") = substitute_bytes(b"Hello ${not_name:world}!", &map, mode).as_deref());
+		}
 	}
 
 	#[test]
@@ -445,7 +488,7 @@ mod test {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
 		let source = r"Hello \world!";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map,Strict));
 		assert!(e.to_string() == r"Invalid escape sequence: \w");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -454,7 +497,7 @@ mod test {
 		));
 
 		let source = r"Hello \❤❤";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == r"Invalid escape sequence: \❤");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -463,7 +506,7 @@ mod test {
 		));
 
 		let source = r"Hello world!\";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == r"Invalid escape sequence: missing escape character");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -477,7 +520,7 @@ mod test {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
 		let source = r"Hello $!";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == r"Missing variable name");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -486,7 +529,7 @@ mod test {
 		));
 
 		let source = r"Hello ${}!";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == r"Missing variable name");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -495,7 +538,7 @@ mod test {
 		));
 
 		let source = r"Hello ${:fallback}!";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == r"Missing variable name");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -504,7 +547,7 @@ mod test {
 		));
 
 		let source = r"Hello 　$❤";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == r"Missing variable name");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -518,7 +561,7 @@ mod test {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
 		let source = "Hello ${name)!";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == "Unexpected character: ')', expected a closing brace ('}') or colon (':')");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -527,7 +570,7 @@ mod test {
 		));
 
 		let source = "Hello ${name❤";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == "Unexpected character: '❤', expected a closing brace ('}') or colon (':')");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -536,7 +579,7 @@ mod test {
 		));
 
 		let source = b"\xE2\x98Hello ${name\xE2\x98";
-		let_assert!(Err(e) = substitute_bytes(source, &map));
+		let_assert!(Err(e) = substitute_bytes(source, &map, Strict));
 		assert!(e.to_string() == "Unexpected character: '\\xE2', expected a closing brace ('}') or colon (':')");
 	}
 
@@ -545,7 +588,7 @@ mod test {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
 		let source = "Hello ${name";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == "Missing closing brace");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -554,7 +597,7 @@ mod test {
 		));
 
 		let source = "Hello ${name:fallback";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == "Missing closing brace");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -568,7 +611,7 @@ mod test {
 		let map: BTreeMap<String, String> = BTreeMap::new();
 
 		let source = "Hello ${name}!";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == "No such variable: $name");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -577,7 +620,7 @@ mod test {
 		));
 
 		let source = "Hello $name!";
-		let_assert!(Err(e) = substitute(source, &map));
+		let_assert!(Err(e) = substitute(source, &map, Strict));
 		assert!(e.to_string() == "No such variable: $name");
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
@@ -592,7 +635,7 @@ mod test {
 		variables.insert(String::from("aap"), String::from("noot"));
 		let variables: &dyn VariableMap<Value = &String> = &variables;
 
-		let_assert!(Ok(expanded) = substitute("one ${aap}", variables));
+		let_assert!(Ok(expanded) = substitute("one ${aap}", variables, Strict));
 		assert!(expanded == "one noot");
 	}
 
@@ -602,7 +645,7 @@ mod test {
 		variables.insert(String::from("aap"), String::from("noot"));
 
 		let source = r"emoticon: \（ ^▽^ ）/";
-		let_assert!(Err(e) = substitute(source, &variables));
+		let_assert!(Err(e) = substitute(source, &variables, Strict));
 		#[rustfmt::skip]
 		assert!(e.source_highlighting(source) == concat!(
 				r"  emoticon: \（ ^▽^ ）/", "\n",
