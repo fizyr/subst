@@ -429,19 +429,25 @@ mod test {
 
 	#[test]
 	fn substitution_in_default_value() {
-		let mut map: BTreeMap<String, String> = BTreeMap::new();
-		check!(let Ok("Hello cruel $name!") = substitute("Hello ${not_name:cruel $name}!", &map, Partial).as_deref());
-		check!(let Ok("Hello cruel !") = substitute("Hello ${not_name:cruel $name}!", &map, Permissive).as_deref());
-		map.insert("name".into(), "world".into());
+		let mut map = BTreeMap::new();
+		map.insert("name", "world");
 		check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel $name}!", &map).as_deref());
 	}
 
 	#[test]
 	fn recursive_substitution_in_default_value() {
-		let map: BTreeMap<String, String> = BTreeMap::new();
-		for mode in [Strict,Partial,Permissive]{
-			check!(let Ok("Hello cruel world!") = substitute("Hello ${not_name:cruel ${name:world}}!", &map, mode).as_deref());
-		}
+		let mut map = BTreeMap::new();
+		check!(let Ok("Hello cruel world!") = substitute("Hello ${a:cruel ${b:world}}!", &map).as_deref());
+		check!(let Ok("Hello cruel round world!") = substitute("Hello ${a:cruel ${b:round ${c:world}}}!", &map).as_deref());
+
+		map.insert("c", "planet");
+		check!(let Ok("Hello cruel round planet!") = substitute("Hello ${a:cruel ${b:round ${c:world}}}!", &map).as_deref());
+
+		map.insert("b", "sphere");
+		check!(let Ok("Hello cruel sphere!") = substitute("Hello ${a:cruel ${b:round ${c:world}}}!", &map).as_deref());
+
+		map.insert("a", "spaceship");
+		check!(let Ok("Hello spaceship!") = substitute("Hello ${a:cruel ${b:round ${c:world}}}!", &map).as_deref());
 	}
 
 	#[test]
