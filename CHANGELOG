@@ -1,3 +1,6 @@
+# Unreleased
+- [add][minor] Allow re-use of parsed templates with `Template`, `TemplateBuf`, `ByteTemplate` and `ByteTemplateBuf`.
+
 # Version 0.3.1 - 2024-06-09
 - [fix][minor] Fix recursive substitution in braced default values.
 
