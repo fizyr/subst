@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.3.2 - 2024-06-25
 - [add][minor] Allow re-use of parsed templates with `Template`, `TemplateBuf`, `ByteTemplate` and `ByteTemplateBuf`.
 
 # Version 0.3.1 - 2024-06-09
