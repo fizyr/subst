@@ -13,6 +13,16 @@
 //! Variable names can consist of alphanumeric characters and underscores.
 //! They are allowed to start with numbers.
 //!
+//! If you want to quickly perform substitution on a string, use [`substitute()`] or [`substitute_bytes()`].
+//!
+//! It is also possible to use one of the template types.
+//! The templates parse the source string or bytes once, and can be expanded as many times as you want.
+//! There are four different template types to choose from:
+//! * [`Template`]: borrows the source string.
+//! * [`TemplateBuf`]: owns the source string.
+//! * [`ByteTemplate`]: borrows the source bytes.
+//! * [`ByteTemplateBuf`]: owns the source bytes.
+//!
 //! # Examples
 //!
 //! The [`substitute()`][substitute] function can be used to perform substitution on a `&str`.
@@ -28,7 +38,7 @@
 //! # }
 //! ```
 //!
-//! The variables can also be taken directly from the environment with the [`Env`][Env] map.
+//! The variables can also be taken directly from the environment with the [`Env`] map.
 //!
 //! ```
 //! # fn main() -> Result<(), subst::Error> {
@@ -52,6 +62,23 @@
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! You can also parse a template once and expand it multiple times:
+//!
+//! ```
+//! # fn main() -> Result<(), subst::Error> {
+//! # use std::collections::HashMap;
+//! let mut variables = HashMap::new();
+//! let template = subst::Template::from_str("Welcome to our hair salon, $name!")?;
+//! for name in ["Scrappy", "Coco"] {
+//!   variables.insert("name", name);
+//!   let message = template.expand(&variables)?;
+//!   println!("{}", message);
+//! # assert_eq!(message, format!("Welcome to our hair salon, {name}!"));
+//! }
+//! # Ok(())
+//! # }
+//! ```
 #![warn(missing_docs, missing_debug_implementations)]
 
 pub mod error;
@@ -59,6 +86,9 @@ pub use error::Error;
 
 mod map;
 pub use map::*;
+
+mod template;
+pub use template::*;
 
 #[cfg(feature = "yaml")]
 pub mod yaml;
@@ -78,12 +108,8 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<str>,
 {
-	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source.as_bytes(), 0..source.len(), variables, &|x| {
-		x.as_ref().as_bytes()
-	})?;
-	// SAFETY: Both source and all variable values are valid UTF-8, so substitation result is also valid UTF-8.
-	unsafe { Ok(String::from_utf8_unchecked(output)) }
+	let output = template::Template::from_str(source)?.expand(variables)?;
+	Ok(output)
 }
 
 /// Substitute variables in a byte string.
@@ -102,271 +128,8 @@ where
 	M: VariableMap<'a> + ?Sized,
 	M::Value: AsRef<[u8]>,
 {
-	let mut output = Vec::with_capacity(source.len() + source.len() / 10);
-	substitute_impl(&mut output, source, 0..source.len(), variables, &|x| x.as_ref())?;
+	let output = template::ByteTemplate::from_slice(source)?.expand(variables)?;
 	Ok(output)
-}
-
-/// Substitute variables in a byte string.
-///
-/// This is the real implementation used by both [`substitute`] and [`substitute_bytes`].
-/// The function accepts any type that implements [`VariableMap`], and a function to convert the value from the map into bytes.
-fn substitute_impl<'a, M, F>(
-	output: &mut Vec<u8>,
-	source: &[u8],
-	range: std::ops::Range<usize>,
-	variables: &'a M,
-	to_bytes: &F,
-) -> Result<(), Error>
-where
-	M: VariableMap<'a> + ?Sized,
-	F: Fn(&M::Value) -> &[u8],
-{
-	let mut finger = range.start;
-	while finger < range.end {
-		let next = match memchr::memchr2(b'$', b'\\', &source[finger..range.end]) {
-			Some(x) => finger + x,
-			None => break,
-		};
-
-		output.extend_from_slice(&source[finger..next]);
-		if source[next] == b'\\' {
-			output.push(unescape_one(source, next)?);
-			finger = next + 2;
-		} else {
-			let variable = parse_variable(source, next)?;
-			let value = variables.get(variable.name);
-			match (&value, &variable.default) {
-				(None, None) => {
-					return Err(error::NoSuchVariable {
-						position: variable.name_start,
-						name: variable.name.to_owned(),
-					}
-					.into());
-				},
-				(Some(value), _default) => {
-					output.extend_from_slice(to_bytes(value));
-				},
-				(None, Some(default)) => {
-					substitute_impl(output, source, default.clone(), variables, to_bytes)?;
-				},
-			};
-			finger = variable.end_position;
-		}
-	}
-
-	output.extend_from_slice(&source[finger..range.end]);
-	Ok(())
-}
-
-/// A parsed variable.
-#[derive(Debug)]
-struct Variable<'a> {
-	/// The name of the variable.
-	name: &'a str,
-
-	/// The start position of the name in the source.
-	name_start: usize,
-
-	/// The default value of the variable.
-	default: Option<std::ops::Range<usize>>,
-
-	/// The end position of the entire variable in the source.
-	end_position: usize,
-}
-
-/// Parse a variable from source at the given position.
-///
-/// The finger must be the position of the dollar sign in the source.
-fn parse_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
-	if finger == source.len() {
-		return Err(error::MissingVariableName {
-			position: finger,
-			len: 1,
-		}
-		.into());
-	}
-	if source[finger + 1] == b'{' {
-		parse_braced_variable(source, finger)
-	} else {
-		let name_end = match source[finger + 1..]
-			.iter()
-			.position(|&c| !c.is_ascii_alphanumeric() && c != b'_')
-		{
-			Some(0) => {
-				return Err(error::MissingVariableName {
-					position: finger,
-					len: 1,
-				}
-				.into());
-			},
-			Some(x) => finger + 1 + x,
-			None => source.len(),
-		};
-		Ok(Variable {
-			name: std::str::from_utf8(&source[finger + 1..name_end]).unwrap(),
-			name_start: finger + 1,
-			default: None,
-			end_position: name_end,
-		})
-	}
-}
-
-/// Parse a braced variable in the form of "${name[:default]} from source at the given position.
-///
-/// The finger must be the position of the dollar sign in the source.
-fn parse_braced_variable(source: &[u8], finger: usize) -> Result<Variable, Error> {
-	let name_start = finger + 2;
-	if name_start >= source.len() {
-		return Err(error::MissingVariableName {
-			position: finger,
-			len: 2,
-		}
-		.into());
-	}
-
-	// Get the first sequence of alphanumeric characters and underscores for the variable name.
-	let name_end = match source[name_start..]
-		.iter()
-		.position(|&c| !c.is_ascii_alphanumeric() && c != b'_')
-	{
-		Some(0) => {
-			return Err(error::MissingVariableName {
-				position: finger,
-				len: 2,
-			}
-			.into());
-		},
-		Some(x) => name_start + x,
-		None => source.len(),
-	};
-
-	// If the name extends to the end, we're missing a closing brace.
-	if name_end == source.len() {
-		return Err(error::MissingClosingBrace { position: finger + 1 }.into());
-	}
-
-	// If there is a closing brace after the name, there is no default value and we're done.
-	if source[name_end] == b'}' {
-		return Ok(Variable {
-			name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
-			name_start,
-			default: None,
-			end_position: name_end + 1,
-		});
-
-	// If there is something other than a closing brace or colon after the name, it's an error.
-	} else if source[name_end] != b':' {
-		return Err(error::UnexpectedCharacter {
-			position: name_end,
-			character: get_maybe_char_at(source, name_end),
-			expected: error::ExpectedCharacter {
-				message: "a closing brace ('}') or colon (':')",
-			},
-		}
-		.into());
-	}
-
-	// If there is no un-escaped closing brace pair, it's missing.
-	let end =
-		finger + find_closing_brace(&source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
-
-	Ok(Variable {
-		name: std::str::from_utf8(&source[name_start..name_end]).unwrap(),
-		name_start,
-		default: Some(name_end + 1..end),
-		end_position: end + 1,
-	})
-}
-
-/// Get the prefix from the input that is valid UTF-8 as [`str`].
-///
-/// If the whole input is valid UTF-8, the whole input is returned.
-/// If the first byte is already invalid UTF-8, an empty string is returned.
-fn valid_utf8_prefix(input: &[u8]) -> &str {
-	// The unwrap can not panic: we used `e.valid_up_to()` to get the valid UTF-8 slice.
-	std::str::from_utf8(input)
-		.or_else(|e| std::str::from_utf8(&input[..e.valid_up_to()]))
-		.unwrap()
-}
-
-/// Get the character at a given index.
-///
-/// If the data at the given index contains a valid UTF-8 sequence,
-/// returns a [`error::CharOrByte::Char`].
-/// Otherwise, returns a [`error::CharOrByte::Byte`].
-fn get_maybe_char_at(data: &[u8], index: usize) -> error::CharOrByte {
-	let head = &data[index..];
-	let head = &head[..head.len().min(4)];
-	assert!(
-		!head.is_empty(),
-		"index out of bounds: data.len() is {} but index is {}",
-		data.len(),
-		index,
-	);
-
-	let head = valid_utf8_prefix(head);
-	if let Some(c) = head.chars().next() {
-		error::CharOrByte::Char(c)
-	} else {
-		error::CharOrByte::Byte(data[index])
-	}
-}
-
-/// Find the closing brace of recursive substitutions.
-fn find_closing_brace(haystack: &[u8]) -> Option<usize> {
-	let mut finger = 0;
-	// We need to count the first opening brace
-	let mut nested = -1;
-	while finger < haystack.len() {
-		let candidate = memchr::memchr3(b'\\', b'{', b'}', &haystack[finger..])?;
-		if haystack[finger + candidate] == b'\\' {
-			if candidate == haystack.len() - 1 {
-				return None;
-			}
-			finger += candidate + 2;
-		} else if haystack[finger + candidate] == b'{' {
-			if candidate == haystack.len() - 1 {
-				return None;
-			}
-			nested += 1;
-			finger += candidate + 1;
-		} else if nested != 0 {
-			nested -= 1;
-			finger += candidate + 1;
-		} else {
-			return Some(finger + candidate);
-		}
-	}
-	None
-}
-
-/// Unescape a single escape sequence in source at the given position.
-///
-/// The `position` must point to the backslash character in the source text.
-///
-/// Only valid escape sequences ('\$' '\{' '\}' and '\:') are accepted.
-/// Invalid escape sequences cause an error to be returned.
-fn unescape_one(source: &[u8], position: usize) -> Result<u8, Error> {
-	if position == source.len() - 1 {
-		return Err(error::InvalidEscapeSequence {
-			position,
-			character: None,
-		}
-		.into());
-	}
-	match source[position + 1] {
-		b'\\' => Ok(b'\\'),
-		b'$' => Ok(b'$'),
-		b'{' => Ok(b'{'),
-		b'}' => Ok(b'}'),
-		b':' => Ok(b':'),
-		_ => Err(error::InvalidEscapeSequence {
-			position,
-			character: Some(get_maybe_char_at(source, position + 1)),
-		}
-		.into()),
-	}
 }
 
 #[cfg(test)]
@@ -375,40 +138,6 @@ mod test {
 	use super::*;
 	use assert2::{assert, check, let_assert};
 	use std::collections::BTreeMap;
-
-	#[test]
-	fn test_get_maybe_char_at() {
-		use error::CharOrByte::{Byte, Char};
-
-		assert!(get_maybe_char_at(b"hello", 0) == Char('h'));
-		assert!(get_maybe_char_at(b"he", 0) == Char('h'));
-		assert!(get_maybe_char_at(b"hello", 1) == Char('e'));
-		assert!(get_maybe_char_at(b"he", 1) == Char('e'));
-		assert!(get_maybe_char_at(b"hello\x80", 1) == Char('e'));
-		assert!(get_maybe_char_at(b"he\x80llo\x80", 1) == Char('e'));
-
-		assert!(get_maybe_char_at(b"h\x79", 1) == Char('\x79'));
-		assert!(get_maybe_char_at(b"h\x80llo", 1) == Byte(0x80));
-
-		// The UTF-8 sequence for '❤' is [0xE2, 0x9D, 0xA4]".
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 0) == Char('h'));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 1) == Char('❤'));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 2) == Byte(0x9d));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 3) == Byte(0xA4));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 4) == Char('l'));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 5) == Char('l'));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 6) == Char('❤'));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 7) == Byte(0x9d));
-		assert!(get_maybe_char_at("h❤ll❤".as_bytes(), 8) == Byte(0xA4));
-	}
-
-	#[test]
-	fn test_find_closing_brace() {
-		check!(find_closing_brace(b"${foo}") == Some(5));
-		check!(find_closing_brace(b"{\\{}foo") == Some(3));
-		check!(find_closing_brace(b"{{}}foo $bar") == Some(3));
-		check!(find_closing_brace(b"foo{\\}}bar") == Some(6));
-	}
 
 	#[test]
 	fn test_substitute() {

@@ -20,6 +20,31 @@ pub enum Error {
 	NoSuchVariable(NoSuchVariable),
 }
 
+/// An error that can occur while parsing a template.
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+pub enum ParseError {
+	/// The input string contains an invalid escape sequence.
+	InvalidEscapeSequence(InvalidEscapeSequence),
+
+	/// The input string contains a variable placeholder without a variable name (`"${}"`).
+	MissingVariableName(MissingVariableName),
+
+	/// The input string contains an unexpected character.
+	UnexpectedCharacter(UnexpectedCharacter),
+
+	/// The input string contains an unclosed variable placeholder.
+	MissingClosingBrace(MissingClosingBrace),
+}
+
+/// An error that can occur while expanding a template.
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(Eq, PartialEq))]
+pub enum ExpandError {
+	/// The input string contains a placeholder for a variable that is not in the variable map.
+	NoSuchVariable(NoSuchVariable),
+}
+
 impl From<InvalidEscapeSequence> for Error {
 	#[inline]
 	fn from(other: InvalidEscapeSequence) -> Self {
@@ -55,6 +80,62 @@ impl From<NoSuchVariable> for Error {
 	}
 }
 
+impl From<ParseError> for Error {
+	#[inline]
+	fn from(other: ParseError) -> Self {
+		match other {
+			ParseError::InvalidEscapeSequence(e) => Self::InvalidEscapeSequence(e),
+			ParseError::MissingVariableName(e) => Self::MissingVariableName(e),
+			ParseError::UnexpectedCharacter(e) => Self::UnexpectedCharacter(e),
+			ParseError::MissingClosingBrace(e) => Self::MissingClosingBrace(e),
+		}
+	}
+}
+
+impl From<ExpandError> for Error {
+	#[inline]
+	fn from(other: ExpandError) -> Self {
+		match other {
+			ExpandError::NoSuchVariable(e) => Self::NoSuchVariable(e),
+		}
+	}
+}
+
+impl From<InvalidEscapeSequence> for ParseError {
+	#[inline]
+	fn from(other: InvalidEscapeSequence) -> Self {
+		Self::InvalidEscapeSequence(other)
+	}
+}
+
+impl From<MissingVariableName> for ParseError {
+	#[inline]
+	fn from(other: MissingVariableName) -> Self {
+		Self::MissingVariableName(other)
+	}
+}
+
+impl From<UnexpectedCharacter> for ParseError {
+	#[inline]
+	fn from(other: UnexpectedCharacter) -> Self {
+		Self::UnexpectedCharacter(other)
+	}
+}
+
+impl From<MissingClosingBrace> for ParseError {
+	#[inline]
+	fn from(other: MissingClosingBrace) -> Self {
+		Self::MissingClosingBrace(other)
+	}
+}
+
+impl From<NoSuchVariable> for ExpandError {
+	#[inline]
+	fn from(other: NoSuchVariable) -> Self {
+		Self::NoSuchVariable(other)
+	}
+}
+
 impl std::error::Error for Error {}
 
 impl std::fmt::Display for Error {
@@ -65,6 +146,31 @@ impl std::fmt::Display for Error {
 			Self::MissingVariableName(e) => e.fmt(f),
 			Self::UnexpectedCharacter(e) => e.fmt(f),
 			Self::MissingClosingBrace(e) => e.fmt(f),
+			Self::NoSuchVariable(e) => e.fmt(f),
+		}
+	}
+}
+
+impl std::error::Error for ParseError {}
+
+impl std::fmt::Display for ParseError {
+	#[inline]
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match self {
+			Self::InvalidEscapeSequence(e) => e.fmt(f),
+			Self::MissingVariableName(e) => e.fmt(f),
+			Self::UnexpectedCharacter(e) => e.fmt(f),
+			Self::MissingClosingBrace(e) => e.fmt(f),
+		}
+	}
+}
+
+impl std::error::Error for ExpandError {}
+
+impl std::fmt::Display for ExpandError {
+	#[inline]
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		match self {
 			Self::NoSuchVariable(e) => e.fmt(f),
 		}
 	}
