@@ -17,6 +17,7 @@ edition = "2021"
 toml = ["dep:serde", "dep:toml"]
 yaml = ["dep:serde", "dep:serde_yaml"]
 preserve-order = ["toml?/preserve_order"]
+doc-cfg = []
 
 [dependencies]
 memchr = "2.4.1"
