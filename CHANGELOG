@@ -1,5 +1,6 @@
 # Unreleased
 - [add][minor] Add support for substitution in all string values of TOML data.
+- [add][minor] Add support for substitution in all string values of JSON data.
 
 # Version 0.3.2 - 2024-06-25
 - [add][minor] Allow re-use of parsed templates with `Template`, `TemplateBuf`, `ByteTemplate` and `ByteTemplateBuf`.
