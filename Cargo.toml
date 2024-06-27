@@ -14,17 +14,20 @@ categories = ["template-engine", "value-formatting"]
 edition = "2021"
 
 [features]
+toml = ["dep:serde", "dep:toml"]
 yaml = ["dep:serde", "dep:serde_yaml"]
+preserve-order = ["toml?/preserve_order"]
 
 [dependencies]
 memchr = "2.4.1"
 serde = { version = "1.0.0", optional = true }
 serde_yaml = { version = "0.9.13", optional = true }
+toml = { version = "0.8.14", optional = true }
 unicode-width = "0.1.9"
 
 [dev-dependencies]
 assert2 = "0.3.6"
-subst = { path = ".", features = ["yaml"] }
+subst = { path = ".", features = ["toml", "yaml"] }
 serde = { version = "1.0.0", features = ["derive"] }
 
 [package.metadata.docs.rs]
