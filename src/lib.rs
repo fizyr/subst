@@ -8,7 +8,7 @@
 //! * Long format: `"Hello ${name}!"`
 //! * Default values: `"Hello ${name:person}!"`
 //! * Recursive substitution in default values: `"${XDG_CONFIG_HOME:$HOME/.config}/my-app/config.toml"`
-//! * Perform substitution on all string values in YAML data (optional, requires the `yaml` feature).
+//! * Perform substitution on all string values in TOML or YAML data (optional, requires the `toml` or `yaml` feature).
 //!
 //! Variable names can consist of alphanumeric characters and underscores.
 //! They are allowed to start with numbers.
@@ -79,7 +79,9 @@
 //! # Ok(())
 //! # }
 //! ```
+
 #![warn(missing_docs, missing_debug_implementations)]
+#![cfg_attr(feature = "doc-cfg", feature(doc_cfg))]
 
 pub mod error;
 pub use error::Error;
@@ -91,7 +93,12 @@ mod template;
 pub use template::*;
 
 #[cfg(feature = "yaml")]
+#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "yaml")))]
 pub mod yaml;
+
+#[cfg(feature = "toml")]
+#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "toml")))]
+pub mod toml;
 
 /// Substitute variables in a string.
 ///
