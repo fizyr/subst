@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.3.3 - 2024-06-29
 - [add][minor] Add support for substitution in all string values of TOML data.
 - [add][minor] Add support for substitution in all string values of JSON data.
 
