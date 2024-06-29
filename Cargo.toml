@@ -14,21 +14,32 @@ categories = ["template-engine", "value-formatting"]
 edition = "2021"
 
 [features]
+# Enable support for performing substitution in all string values of a JSON document.
+json = ["dep:serde", "dep:serde_json"]
+
+# Enable support for performing substitution in all string values of a TOML document.
 toml = ["dep:serde", "dep:toml"]
+
+# Enable support for performing substitution in all string values of a YAML document.
 yaml = ["dep:serde", "dep:serde_yaml"]
-preserve-order = ["toml?/preserve_order"]
+
+# Preserve the order of fields in JSON objects and TOML tables (YAML always preserves the order).
+preserve-order = ["toml?/preserve_order", "serde_json?/preserve_order"]
+
+# Enable #[doc(cfg...)] annotations for optional parts of the library (requires a nightly compiler).
 doc-cfg = []
 
 [dependencies]
 memchr = "2.4.1"
 serde = { version = "1.0.0", optional = true }
-serde_yaml = { version = "0.9.13", optional = true }
+serde_json = { version = "1.0.118", optional = true }
+serde_yaml = { version = "0.9.34", optional = true }
 toml = { version = "0.8.14", optional = true }
 unicode-width = "0.1.9"
 
 [dev-dependencies]
 assert2 = "0.3.6"
-subst = { path = ".", features = ["toml", "yaml"] }
+subst = { path = ".", features = ["json", "toml", "yaml"] }
 serde = { version = "1.0.0", features = ["derive"] }
 
 [package.metadata.docs.rs]

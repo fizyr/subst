@@ -92,6 +92,10 @@ pub use map::*;
 mod template;
 pub use template::*;
 
+#[cfg(feature = "json")]
+#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "json")))]
+pub mod json;
+
 #[cfg(feature = "yaml")]
 #[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "yaml")))]
 pub mod yaml;
