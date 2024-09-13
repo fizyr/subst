@@ -92,17 +92,9 @@ pub use map::*;
 mod template;
 pub use template::*;
 
-#[cfg(feature = "json")]
-#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "json")))]
-pub mod json;
-
-#[cfg(feature = "yaml")]
-#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "yaml")))]
-pub mod yaml;
-
-#[cfg(feature = "toml")]
-#[cfg_attr(feature = "doc-cfg", doc(cfg(feature = "toml")))]
-pub mod toml;
+mod features;
+#[allow(unused_imports)] // Might not re-export anything if all features are disabled.
+pub use features::*;
 
 /// Substitute variables in a string.
 ///
