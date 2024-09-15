@@ -6,11 +6,12 @@ Shell-like variable substitution for strings and byte strings.
 
 * Perform substitution in `&str` or in `&[u8]`.
 * Provide a custom map of variables or use environment variables.
+  * Support for `indexmap` (requires the `indexmap` feature).
 * Short format: `"Hello $name!"`
 * Long format: `"Hello ${name}!"`
 * Default values: `"Hello ${name:person}!"`
 * Recursive substitution in default values: `"${XDG_CONFIG_HOME:$HOME/.config}/my-app/config.toml"`
-* Perform substitution on all string values in TOML or YAML data (optional, requires the `toml` or `yaml` feature).
+* Perform substitution on all string values in TOML, JSON or YAML data (optional, requires the `toml`, `json` or `yaml` feature).
 
 Variable names can consist of alphanumeric characters and underscores.
 They are allowed to start with numbers.
@@ -27,7 +28,7 @@ There are four different template types to choose from:
 
 ## Examples
 
-The [`substitute()`][substitute] function can be used to perform substitution on a `&str`.
+The [`substitute()`] function can be used to perform substitution on a `&str`.
 The variables can either be a [`HashMap`][std::collections::HashMap] or a [`BTreeMap`][std::collections::BTreeMap].
 
 ```rust
@@ -45,7 +46,7 @@ assert_eq!(
 );
 ```
 
-Substitution can also be done on byte strings using the [`substitute_bytes()`][substitute_bytes] function.
+Substitution can also be done on byte strings using the [`substitute_bytes()`] function.
 
 ```rust
 let mut variables = HashMap::new();
@@ -56,10 +57,9 @@ assert_eq!(subst::substitute_bytes(b"Hello $name!", &variables)?, b"Hello world!
 You can also parse a template once and expand it multiple times:
 
 ```rust
-let mut variables = HashMap::new();
 let template = subst::Template::from_str("Welcome to our hair salon, $name!")?;
 for name in ["Scrappy", "Coco"] {
-  variables.insert("name", name);
+  let variables: HashMap<_, _> = [("name", name)].into_iter().collect();
   let message = template.expand(&variables)?;
   println!("{}", message);
 }
