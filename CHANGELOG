@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.3.4 - 2024-09-15
 - [add][minor] Add optional support for the `indexmap` crate.
 
 # Version 0.3.3 - 2024-06-29
