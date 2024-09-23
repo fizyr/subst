@@ -140,8 +140,8 @@ impl Variable {
 		}
 
 		// If there is no matching un-escaped closing brace, it's missing.
-		let end = finger + find_closing_brace(&source[finger..])
-			.ok_or(error::MissingClosingBrace { position: finger + 1 })?;
+		let end = finger
+			+ find_closing_brace(&source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
 
 		let variable = Variable {
 			name: name_start..name_end,
