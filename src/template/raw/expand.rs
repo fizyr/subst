@@ -2,9 +2,24 @@ use super::{Part, Template, Variable};
 use crate::error::{self, ExpandError};
 use crate::VariableMap;
 
-impl Template {
+/// Common `expand` prototype, e.g., for variables and templates
+pub trait Expand {
+	/// Expand into the output vector.
+	fn expand<'a, M, F>(
+		&self,
+		output: &mut Vec<u8>,
+		source: &[u8],
+		variables: &'a M,
+		to_bytes: &F,
+	) -> Result<(), ExpandError>
+	where
+		M: VariableMap<'a> + ?Sized,
+		F: Fn(&M::Value) -> &[u8];
+}
+
+impl Expand for Template {
 	/// Expand the template into the output vector.
-	pub fn expand<'a, M, F>(
+	fn expand<'a, M, F>(
 		&self,
 		output: &mut Vec<u8>,
 		source: &[u8],
@@ -27,7 +42,7 @@ impl Template {
 	}
 }
 
-impl Variable {
+impl Expand for Variable {
 	/// Expand the variable into the output vector.
 	fn expand<'a, M, F>(
 		&self,

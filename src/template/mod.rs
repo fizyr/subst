@@ -1,4 +1,5 @@
 use crate::error::{ExpandError, ParseError};
+pub use crate::template::raw::Expand;
 use crate::VariableMap;
 
 mod raw;
@@ -252,7 +253,7 @@ impl<'a> ByteTemplate<'a> {
 	///
 	/// This will substitute all variables in the template with the values from the given map.
 	///
-	/// You can pass either a [`HashMap`][std::collections::HashMap], [`BTreeMap`][std::collections::BTreeMap] or [`Env`][crate::Env] as the `variables` parameter.
+	/// You can pass either a [`HashMap`][std::collections::HashMap], [`BTreeMap`][std::collections::BTreeMap], [`IndexMap`][indexmap::IndexMap] or [`Env`][crate::Env] as the `variables` parameter.
 	/// The maps must have [`&str`] or [`String`] keys, and the values must be [`AsRef<[u8]>`].
 	pub fn expand<'b, M>(&self, variables: &'b M) -> Result<Vec<u8>, ExpandError>
 	where

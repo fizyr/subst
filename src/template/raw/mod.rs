@@ -1,6 +1,8 @@
 mod expand;
 mod parse;
 
+pub use expand::Expand;
+
 /// Raw template that doesn't know track the original source.
 ///
 /// Internally, this keeps a bunch of offsets into the original source.
