@@ -92,8 +92,10 @@ impl<'a> Template<'a> {
 /// If you have a byte slice or vector instead of a string,
 /// you can use [`ByteTemplate`] or [`ByteTemplateBuf`].
 pub struct TemplateBuf {
-	source: String,
+	// SAFETY: To avoid dangling references, Template must be dropped before
+	// source, therefore the template field must be precede the source field.
 	template: Template<'static>,
+	source: String,
 }
 
 impl Clone for TemplateBuf {
@@ -150,6 +152,8 @@ impl TemplateBuf {
 	/// Consume the template to get the original source string.
 	#[inline]
 	pub fn into_source(self) -> String {
+		// SAFETY: Drop template before source to avoid dangling reference
+		drop(self.template);
 		self.source
 	}
 
@@ -303,8 +307,10 @@ impl<'a> ByteTemplate<'a> {
 /// If you have a string instead of a byte slice,
 /// you can use [`Template`] or [`TemplateBuf`].
 pub struct ByteTemplateBuf {
-	source: Vec<u8>,
+	// SAFETY: To avoid dangling references, Template must be dropped before
+	// source, therefore the template field must be precede the source field.
 	template: ByteTemplate<'static>,
+	source: Vec<u8>,
 }
 
 impl Clone for ByteTemplateBuf {
@@ -360,6 +366,8 @@ impl ByteTemplateBuf {
 	/// Consume the template to get the original source vector.
 	#[inline]
 	pub fn into_source(self) -> Vec<u8> {
+		// SAFETY: Drop template before source to avoid dangling reference
+		drop(self.template);
 		self.source
 	}
 
