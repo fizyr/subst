@@ -403,3 +403,24 @@ impl std::fmt::Debug for DebugByteString<'_> {
 		}
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use assert2::{assert, check, let_assert};
+	use std::collections::BTreeMap;
+
+	#[test]
+	fn test_clone() {
+		let mut map: BTreeMap<String, String> = BTreeMap::new();
+		map.insert("name".into(), "world".into());
+		let source = "Hello ${name}!";
+		let_assert!(Ok(buf1) = TemplateBuf::from_string(source.into()));
+		let buf2 = buf1.clone();
+		let mut string = buf1.into_source();
+		string.as_mut()[..5].make_ascii_uppercase();
+		check!(let Ok("Hello world!") = buf2.expand(&map).as_deref());
+		assert!(buf2.as_template().source() == source);
+		assert!(buf2.into_source() == source);
+	}
+}
