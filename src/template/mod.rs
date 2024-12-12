@@ -91,10 +91,28 @@ impl<'a> Template<'a> {
 ///
 /// If you have a byte slice or vector instead of a string,
 /// you can use [`ByteTemplate`] or [`ByteTemplateBuf`].
-#[derive(Clone)]
 pub struct TemplateBuf {
 	source: String,
 	template: Template<'static>,
+}
+
+impl Clone for TemplateBuf {
+	fn clone(&self) -> Self {
+		let source = self.source.clone();
+		let template = Template {
+			raw: self.template.raw.clone(),
+			source: &source,
+		};
+		// SAFETY:
+		// The str slice given to `template` must remain valid.
+		// Since `String` keeps data on the heap, it remains valid when the `source` is moved.
+		// We MUST ensure we do not modify, drop or overwrite `source`.
+		let template = unsafe { template.transmute_lifetime() };
+		Self {
+			template,
+			source,
+		}
+	}
 }
 
 impl std::fmt::Debug for TemplateBuf {
@@ -284,10 +302,27 @@ impl<'a> ByteTemplate<'a> {
 ///
 /// If you have a string instead of a byte slice,
 /// you can use [`Template`] or [`TemplateBuf`].
-#[derive(Clone)]
 pub struct ByteTemplateBuf {
 	source: Vec<u8>,
 	template: ByteTemplate<'static>,
+}
+
+impl Clone for ByteTemplateBuf {
+	fn clone(&self) -> Self {
+		let source = self.source.clone();
+		let template = ByteTemplate {
+			raw: self.template.raw.clone(),
+			source: &source,
+		};
+		// The slice given to `template` must remain valid.
+		// Since `Vec` keeps data on the heap, it remains valid when the `source` is moved.
+		// We MUST ensure we do not modify, drop or overwrite `source`.
+		let template = unsafe { template.transmute_lifetime() };
+		Self {
+			template,
+			source,
+		}
+	}
 }
 
 impl std::fmt::Debug for ByteTemplateBuf {
