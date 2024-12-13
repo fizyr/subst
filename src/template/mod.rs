@@ -466,4 +466,50 @@ mod tests {
 		assert!(buf2.as_template().source() == source);
 		assert!(buf2.into_source() == source);
 	}
+
+	#[test]
+	fn test_clone_byte_template_buf() {
+		let mut map: BTreeMap<String, String> = BTreeMap::new();
+		map.insert("name".into(), "world".into());
+		let source = b"Hello ${name}!";
+		let_assert!(Ok(buf1) = ByteTemplateBuf::from_vec(source.into()));
+		let buf2 = buf1.clone();
+		let mut string = buf1.into_source();
+		string.as_mut_slice()[..5].make_ascii_uppercase();
+		check!(let Ok(b"Hello world!") = buf2.expand(&map).as_deref());
+		assert!(buf2.as_template().source() == source);
+		assert!(buf2.into_source() == source);
+	}
+
+	#[test]
+	fn test_move_template_buf() {
+		#[inline(never)]
+		fn check_template(buf: TemplateBuf) {
+			let mut map: BTreeMap<String, String> = BTreeMap::new();
+			map.insert("name".into(), "world".into());
+			assert!(buf.as_template().source() == "Hello ${name}!");
+			let_assert!(Ok(expanded) = buf.as_template().expand(&map));
+			assert!(expanded == "Hello world!");
+		}
+
+		let source = "Hello ${name}!";
+		let_assert!(Ok(buf1) = TemplateBuf::from_string(source.into()));
+		check_template(buf1);
+	}
+
+	#[test]
+	fn test_move_byte_template_buf() {
+		#[inline(never)]
+		fn check_template(buf: ByteTemplateBuf) {
+			let mut map: BTreeMap<String, String> = BTreeMap::new();
+			map.insert("name".into(), "world".into());
+			assert!(buf.as_template().source() == b"Hello ${name}!");
+			let_assert!(Ok(expanded) = buf.as_template().expand(&map));
+			assert!(expanded == b"Hello world!");
+		}
+
+		let source = b"Hello ${name}!";
+		let_assert!(Ok(buf1) = ByteTemplateBuf::from_vec(source.into()));
+		check_template(buf1);
+	}
 }
