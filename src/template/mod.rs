@@ -1,3 +1,6 @@
+use core::pin::Pin;
+use core::mem::ManuallyDrop;
+
 use crate::error::{ExpandError, ParseError};
 use crate::VariableMap;
 
@@ -94,22 +97,25 @@ impl<'a> Template<'a> {
 pub struct TemplateBuf {
 	// SAFETY: To avoid dangling references, Template must be dropped before
 	// source, therefore the template field must be precede the source field.
-	template: Template<'static>,
-	source: String,
+	template: TemplateStorage<Template<'static>>,
+	source: Pin<String>,
 }
 
 impl Clone for TemplateBuf {
 	fn clone(&self) -> Self {
 		let source = self.source.clone();
+		// SAFETY: The `template` union always holds a `template`.
+		let raw = unsafe { self.template.template.raw.clone() };
+
 		let template = Template {
-			raw: self.template.raw.clone(),
-			source: &source,
+			raw,
+			source: &*source,
 		};
-		// SAFETY:
-		// The str slice given to `template` must remain valid.
+		// SAFETY: The str slice given to `template` must remain valid.
 		// Since `String` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
 		let template = unsafe { template.transmute_lifetime() };
+		let template = TemplateStorage::new(template);
 		Self {
 			template,
 			source,
@@ -139,13 +145,14 @@ impl TemplateBuf {
 	/// You can escape dollar signs, backslashes, colons and braces with a backslash.
 	#[inline]
 	pub fn from_string(source: String) -> Result<Self, ParseError> {
-		let template = Template::from_str(&source)?;
+		let source = Pin::new(source);
+		let template = Template::from_str(&*source)?;
 
-		// SAFETY:
-		// The str slice given to `template` must remain valid.
+		// SAFETY: The str slice given to `template` must remain valid.
 		// Since `String` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
 		let template = unsafe { template.transmute_lifetime() };
+		let template = TemplateStorage::new(template);
 		Ok(Self { source, template })
 	}
 
@@ -154,14 +161,15 @@ impl TemplateBuf {
 	pub fn into_source(self) -> String {
 		// SAFETY: Drop template before source to avoid dangling reference
 		drop(self.template);
-		self.source
+		Pin::into_inner(self.source)
 	}
 
 	/// Borrow the template.
 	#[inline]
 	#[allow(clippy::needless_lifetimes)]
 	pub fn as_template<'a>(&'a self) -> &'a Template<'a> {
-		&self.template
+		// SAFETY: The `template` union always holds a `template`.
+		unsafe { &self.template.template }
 	}
 
 	/// Expand the template.
@@ -175,7 +183,7 @@ impl TemplateBuf {
 		M: VariableMap<'b> + ?Sized,
 		M::Value: AsRef<str>,
 	{
-		self.template.expand(variables)
+		self.as_template().expand(variables)
 	}
 }
 
@@ -203,18 +211,18 @@ impl From<&Template<'_>> for TemplateBuf {
 impl From<Template<'_>> for TemplateBuf {
 	#[inline]
 	fn from(other: Template<'_>) -> Self {
-		let source: String = other.source.into();
+		let source: Pin<String> = Pin::new(other.source.into());
 
 		let template = Template {
-			source: source.as_str(),
+			source: &*source,
 			raw: other.raw,
 		};
 
-		// SAFETY:
-		// The str slice given to `template` must remain valid.
+		// SAFETY: The str slice given to `template` must remain valid.
 		// Since `String` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
 		let template = unsafe { template.transmute_lifetime() };
+		let template = TemplateStorage::new(template);
 
 		Self { source, template }
 	}
@@ -309,21 +317,29 @@ impl<'a> ByteTemplate<'a> {
 pub struct ByteTemplateBuf {
 	// SAFETY: To avoid dangling references, Template must be dropped before
 	// source, therefore the template field must be precede the source field.
-	template: ByteTemplate<'static>,
+	template: TemplateStorage<ByteTemplate<'static>>,
+	// source: Pin<Vec<u8>>,
 	source: Vec<u8>,
 }
 
 impl Clone for ByteTemplateBuf {
 	fn clone(&self) -> Self {
 		let source = self.source.clone();
+
+		// SAFETY: The `template` union always holds a `template`.
+		let raw = unsafe { self.template.template.raw.clone() };
+
 		let template = ByteTemplate {
-			raw: self.template.raw.clone(),
-			source: &source,
+			raw,
+			source: &*source,
 		};
-		// The slice given to `template` must remain valid.
+
+		// SAFETY: The slice given to `template` must remain valid.
 		// Since `Vec` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
 		let template = unsafe { template.transmute_lifetime() };
+		let template = TemplateStorage::new(template);
+
 		Self {
 			template,
 			source,
@@ -353,13 +369,15 @@ impl ByteTemplateBuf {
 	/// You can escape dollar signs, backslashes, colons and braces with a backslash.
 	#[inline]
 	pub fn from_vec(source: Vec<u8>) -> Result<Self, ParseError> {
-		let template = ByteTemplate::from_slice(&source)?;
+		// let source = Pin::new(source);
+		let template = ByteTemplate::from_slice(&*source)?;
 
-		// SAFETY:
-		// The slice given to `template` must remain valid.
+		// SAFETY: The slice given to `template` must remain valid.
 		// Since `Vec` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
 		let template = unsafe { std::mem::transmute::<ByteTemplate<'_>, ByteTemplate<'static>>(template) };
+		let template = TemplateStorage::new(template);
+
 		Ok(Self { source, template })
 	}
 
@@ -368,14 +386,16 @@ impl ByteTemplateBuf {
 	pub fn into_source(self) -> Vec<u8> {
 		// SAFETY: Drop template before source to avoid dangling reference
 		drop(self.template);
+		// Pin::into_inner(self.source)
 		self.source
 	}
 
 	/// Borrow the template.
 	#[inline]
 	#[allow(clippy::needless_lifetimes)]
-	pub fn as_template<'a>(&'a self) -> &'a ByteTemplate<'static> {
-		&self.template
+	pub fn as_template<'a>(&'a self) -> &'a ByteTemplate<'a> {
+		// SAFETY: `self.template` always holds a `template`.
+		unsafe { &self.template.template }
 	}
 
 	/// Expand the template.
@@ -389,7 +409,7 @@ impl ByteTemplateBuf {
 		M: VariableMap<'b> + ?Sized,
 		M::Value: AsRef<[u8]>,
 	{
-		self.template.expand(variables)
+		self.as_template().expand(variables)
 	}
 }
 
@@ -418,17 +438,21 @@ impl From<ByteTemplate<'_>> for ByteTemplateBuf {
 	#[inline]
 	fn from(other: ByteTemplate<'_>) -> Self {
 		let source: Vec<u8> = other.source.into();
+		// let source = Pin::new(source);
 
 		let template = ByteTemplate {
-			source: source.as_slice(),
+			source: &*source,
 			raw: other.raw,
 		};
 
-		// SAFETY:
-		// The slice given to `template` must remain valid.
+		// SAFETY: The slice given to `template` must remain valid.
 		// Since `Vec` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
 		let template = unsafe { template.transmute_lifetime() };
+
+		let template = TemplateStorage {
+			template: ManuallyDrop::new(template)
+		};
 
 		Self { source, template }
 	}
@@ -447,6 +471,33 @@ impl std::fmt::Debug for DebugByteString<'_> {
 	}
 }
 
+/// Union used to store a template.
+///
+/// By keeping the value around in a union,
+/// we avoid keeping a reference to the source data around,
+/// at the cost of making all access to the wrapped template unsafe (probably a good thing).
+union TemplateStorage<T> {
+	template: ManuallyDrop<T>,
+}
+
+impl<T> TemplateStorage<T> {
+	fn new(template: T) -> Self {
+		let template = ManuallyDrop::new(template);
+		Self { template }
+	}
+}
+
+impl<T> Drop for TemplateStorage<T> {
+	fn drop(&mut self) {
+		// SAFETY: This union *always* holds a `template`.
+		// The call to `ManuallyDrop::drop()` should also be fine:
+		// we're in `Drop::drop()` so nobody can use `self.template` anymore after us.
+		unsafe {
+			ManuallyDrop::drop(&mut self.template)
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -454,7 +505,7 @@ mod tests {
 	use std::collections::BTreeMap;
 
 	#[test]
-	fn test_clone() {
+	fn test_clone_template_buf() {
 		let mut map: BTreeMap<String, String> = BTreeMap::new();
 		map.insert("name".into(), "world".into());
 		let source = "Hello ${name}!";
@@ -465,5 +516,51 @@ mod tests {
 		check!(let Ok("Hello world!") = buf2.expand(&map).as_deref());
 		assert!(buf2.as_template().source() == source);
 		assert!(buf2.into_source() == source);
+	}
+
+	#[test]
+	fn test_clone_byte_template_buf() {
+		let mut map: BTreeMap<String, String> = BTreeMap::new();
+		map.insert("name".into(), "world".into());
+		let source = b"Hello ${name}!";
+		let_assert!(Ok(buf1) = ByteTemplateBuf::from_vec(source.into()));
+		let buf2 = buf1.clone();
+		let mut string = buf1.into_source();
+		string.as_mut_slice()[..5].make_ascii_uppercase();
+		check!(let Ok(b"Hello world!") = buf2.expand(&map).as_deref());
+		assert!(buf2.as_template().source() == source);
+		assert!(buf2.into_source() == source);
+	}
+
+	#[test]
+	fn test_move_template_buf() {
+		#[inline(never)]
+		fn check_template(buf: TemplateBuf) {
+			let mut map: BTreeMap<String, String> = BTreeMap::new();
+			map.insert("name".into(), "world".into());
+			assert!(buf.as_template().source() == "Hello ${name}!");
+			let_assert!(Ok(expanded) = buf.as_template().expand(&map));
+			assert!(expanded == "Hello world!");
+		}
+
+		let source = "Hello ${name}!";
+		let_assert!(Ok(buf1) = TemplateBuf::from_string(source.into()));
+		check_template(buf1);
+	}
+
+	#[test]
+	fn test_move_buf_template_buf() {
+		#[inline(never)]
+		fn check_template(buf: ByteTemplateBuf) {
+			let mut map: BTreeMap<String, String> = BTreeMap::new();
+			map.insert("name".into(), "world".into());
+			assert!(buf.as_template().source() == b"Hello ${name}!");
+			let_assert!(Ok(expanded) = buf.as_template().expand(&map));
+			assert!(expanded == b"Hello world!");
+		}
+
+		let source = b"Hello ${name}!";
+		let_assert!(Ok(buf1) = ByteTemplateBuf::from_vec(source.into()));
+		check_template(buf1);
 	}
 }
