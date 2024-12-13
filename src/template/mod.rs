@@ -379,7 +379,7 @@ impl ByteTemplateBuf {
 		// SAFETY: The slice given to `template` must remain valid.
 		// Since `Vec` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
-		let template = unsafe { std::mem::transmute::<ByteTemplate<'_>, ByteTemplate<'static>>(template) };
+		let template = unsafe { template.transmute_lifetime() };
 		let template = NonAliasing::new(template);
 
 		Ok(Self { source, template })
