@@ -1,7 +1,6 @@
 use crate::error::{ExpandError, ParseError};
 use crate::VariableMap;
 
-mod aliasable;
 mod raw;
 
 /// A parsed string template that borrows the source string.
@@ -96,7 +95,7 @@ pub struct TemplateBuf {
 	// SAFETY: To avoid dangling references, Template must be dropped before
 	// source, therefore the template field must be precede the source field.
 	template: Template<'static>,
-	source: aliasable::String,
+	source: String,
 }
 
 impl Clone for TemplateBuf {
@@ -121,7 +120,7 @@ impl Clone for TemplateBuf {
 impl std::fmt::Debug for TemplateBuf {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		f.debug_tuple("TemplateBuf").field(&&*self.source).finish()
+		f.debug_tuple("TemplateBuf").field(&self.source).finish()
 	}
 }
 
@@ -140,7 +139,6 @@ impl TemplateBuf {
 	/// You can escape dollar signs, backslashes, colons and braces with a backslash.
 	#[inline]
 	pub fn from_string(source: String) -> Result<Self, ParseError> {
-		let source = aliasable::String::from_string(source);
 		let template = Template::from_str(&source)?;
 
 		// SAFETY:
@@ -156,7 +154,7 @@ impl TemplateBuf {
 	pub fn into_source(self) -> String {
 		// SAFETY: Drop template before source to avoid dangling reference
 		drop(self.template);
-		self.source.into_string()
+		self.source
 	}
 
 	/// Borrow the template.
@@ -205,10 +203,10 @@ impl From<&Template<'_>> for TemplateBuf {
 impl From<Template<'_>> for TemplateBuf {
 	#[inline]
 	fn from(other: Template<'_>) -> Self {
-		let source = aliasable::String::from_string(other.source.into());
+		let source: String = other.source.into();
 
 		let template = Template {
-			source: &source,
+			source: source.as_str(),
 			raw: other.raw,
 		};
 
@@ -312,7 +310,7 @@ pub struct ByteTemplateBuf {
 	// SAFETY: To avoid dangling references, Template must be dropped before
 	// source, therefore the template field must be precede the source field.
 	template: ByteTemplate<'static>,
-	source: aliasable::Bytes,
+	source: Vec<u8>,
 }
 
 impl Clone for ByteTemplateBuf {
@@ -355,7 +353,6 @@ impl ByteTemplateBuf {
 	/// You can escape dollar signs, backslashes, colons and braces with a backslash.
 	#[inline]
 	pub fn from_vec(source: Vec<u8>) -> Result<Self, ParseError> {
-		let source = aliasable::Bytes::from_bytes(source);
 		let template = ByteTemplate::from_slice(&source)?;
 
 		// SAFETY:
@@ -371,7 +368,7 @@ impl ByteTemplateBuf {
 	pub fn into_source(self) -> Vec<u8> {
 		// SAFETY: Drop template before source to avoid dangling reference
 		drop(self.template);
-		self.source.into_bytes()
+		self.source
 	}
 
 	/// Borrow the template.
@@ -420,10 +417,10 @@ impl From<&ByteTemplate<'_>> for ByteTemplateBuf {
 impl From<ByteTemplate<'_>> for ByteTemplateBuf {
 	#[inline]
 	fn from(other: ByteTemplate<'_>) -> Self {
-		let source = aliasable::Bytes::from_bytes(other.source.into());
+		let source: Vec<u8> = other.source.into();
 
 		let template = ByteTemplate {
-			source: &source,
+			source: source.as_slice(),
 			raw: other.raw,
 		};
 
