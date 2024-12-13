@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.3.7 - 2024-12-13
 - [fix][minor] Fix violation of aliasing rules in `TemplateBuf` and `ByteTemplateBuf`.
 
 # Version 0.3.6 - 2024-12-13
