@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.3.6 - 2024-12-13
 - [fix][minor] Fix unsound `Clone` and `Drop` implementation of `TemplateBuf` and `ByteTemplateBuf`.
 
 # Version 0.3.5 - 2024-09-15
