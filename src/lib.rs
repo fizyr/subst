@@ -96,6 +96,8 @@ mod features;
 #[allow(unused_imports)] // Might not re-export anything if all features are disabled.
 pub use features::*;
 
+mod non_aliasing;
+
 /// Substitute variables in a string.
 ///
 /// Variables have the form `$NAME`, `${NAME}` or `${NAME:default}`.
