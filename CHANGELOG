@@ -1,3 +1,6 @@
+# Unreleased
+- [fix][minor] Fix out-of-bounds read when input string ends with a dollar sign.
+
 # Version 0.3.7 - 2024-12-13
 - [fix][minor] Fix violation of aliasing rules in `TemplateBuf` and `ByteTemplateBuf`.
 
