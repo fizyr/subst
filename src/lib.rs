@@ -272,6 +272,14 @@ mod test {
 				r"  Hello 　$❤", "\n",
 				r"          ^", "\n",
 		));
+		let source = r"Hello 　$";
+		let_assert!(Err(e) = substitute(source, &map));
+		assert!(e.to_string() == r"Missing variable name");
+		#[rustfmt::skip]
+		assert!(e.source_highlighting(source) == concat!(
+				r"  Hello 　$", "\n",
+				r"          ^", "\n",
+		));
 	}
 
 	#[test]
