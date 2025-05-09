@@ -378,4 +378,19 @@ mod test {
 				r"            ^^^", "\n",
 		));
 	}
+
+	#[test]
+	fn test_vec_map() {
+		let test_vec = vec!["xxxx", "foo", "bar"];
+		let test_slice = &test_vec[..];
+		let_assert!(Err(e) = substitute("${99}", &test_slice));
+		assert!(e.to_string() == "No such variable: $99");
+		assert_eq!(Ok("foo bar"), substitute("${*}", &test_slice).as_deref());
+		assert_eq!(Ok("xxxx"), substitute("${0}", &test_slice).as_deref());
+		assert_eq!(Ok("foo"), substitute("${1}", &test_slice).as_deref());
+		assert_eq!(Ok("bar"), substitute("${2}", &test_slice).as_deref());
+		assert_eq!(Ok("foo bar"), substitute("$*", &test_slice).as_deref());
+		assert_eq!(Ok("foo"), substitute("$1", &test_slice).as_deref());
+		assert_eq!(Ok("bar"), substitute("$2", &test_slice).as_deref());
+	}
 }

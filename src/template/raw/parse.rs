@@ -60,6 +60,13 @@ impl Variable {
 		}
 		if source[finger + 1] == b'{' {
 			Self::parse_braced(source, finger)
+		} else if source[finger + 1] == b'*' {
+			let name_end = finger + 2;
+			let variable = Variable {
+				name: finger + 1..name_end,
+				default: None,
+			};
+			Ok((variable, name_end))
 		} else {
 			let name_end = match source[finger + 1..]
 				.iter()
@@ -101,7 +108,7 @@ impl Variable {
 		// Get the first sequence of alphanumeric characters and underscores for the variable name.
 		let name_end = match source[name_start..]
 			.iter()
-			.position(|&c| !c.is_ascii_alphanumeric() && c != b'_')
+			.position(|&c| !c.is_ascii_alphanumeric() && c != b'_' && c != b'*')
 		{
 			Some(0) => {
 				return Err(error::MissingVariableName {
@@ -117,6 +124,14 @@ impl Variable {
 		// If the name extends to the end, we're missing a closing brace.
 		if name_end == source.len() {
 			return Err(error::MissingClosingBrace { position: finger + 1 }.into());
+		}
+
+		if name_end - name_start > 1 && source[name_start..name_end].contains(&b'*') {
+			return Err(error::MissingVariableName {
+				position: finger,
+				len: name_end - name_start,
+			}
+			.into());
 		}
 
 		// If there is a closing brace after the name, there is no default value and we're done.
