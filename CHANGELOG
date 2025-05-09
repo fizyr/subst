@@ -1,4 +1,4 @@
-# Unreleased
+# Version 0.3.8 - 2025-05-09
 - [fix][minor] Fix out-of-bounds read when input string ends with a dollar sign.
 
 # Version 0.3.7 - 2024-12-13
