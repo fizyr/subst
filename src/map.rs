@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasher;
 
@@ -99,5 +100,29 @@ impl<'a, V: 'a, S: BuildHasher> VariableMap<'a> for HashMap<String, V, S> {
 	#[inline]
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		self.get(key)
+	}
+}
+
+impl<'a, T: AsRef<str>> VariableMap<'a> for &[T] {
+	type Value = Cow<'a, str>;
+
+	#[inline]
+	fn get(&'a self, key: &str) -> Option<Self::Value> {
+		if key == "*" {
+			let mut s = String::new();
+			for (n, val) in self.iter().skip(1).enumerate() {
+				if n > 0 {
+					s.push(' ');
+				}
+				s.push_str(val.as_ref());
+			}
+			Some(Cow::from(s))
+		} else {
+			str::parse::<usize>(key)
+				.ok()
+				.filter(|index| *index < self.len())
+				.map(|index| &self[index])
+				.map(|s| Cow::from(s.as_ref()))
+		}
 	}
 }
