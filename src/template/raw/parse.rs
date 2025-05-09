@@ -51,7 +51,7 @@ impl Variable {
 	///
 	/// Returns the parsed variable and the index of the byte after the variable.
 	fn parse(source: &[u8], finger: usize) -> Result<(Self, usize), ParseError> {
-		if finger == source.len() {
+		if finger + 1 >= source.len() {
 			return Err(error::MissingVariableName {
 				position: finger,
 				len: 1,
@@ -140,8 +140,8 @@ impl Variable {
 		}
 
 		// If there is no matching un-escaped closing brace, it's missing.
-		let end = finger + find_closing_brace(&source[finger..])
-			.ok_or(error::MissingClosingBrace { position: finger + 1 })?;
+		let end = finger
+			+ find_closing_brace(&source[finger..]).ok_or(error::MissingClosingBrace { position: finger + 1 })?;
 
 		let variable = Variable {
 			name: name_start..name_end,
