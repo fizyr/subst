@@ -1,8 +1,8 @@
 use core::pin::Pin;
 
-use crate::VariableMap;
 use crate::error::{ExpandError, ParseError};
 use crate::non_aliasing::NonAliasing;
+use crate::VariableMap;
 
 mod raw;
 
@@ -28,6 +28,15 @@ impl std::fmt::Debug for Template<'_> {
 		f.debug_tuple("Template").field(&self.source).finish()
 	}
 }
+
+impl std::cmp::PartialEq for Template<'_> {
+	#[inline]
+	fn eq(&self, other: &Self) -> bool {
+		self.source == other.source
+	}
+}
+
+impl std::cmp::Eq for Template<'_> {}
 
 impl<'a> Template<'a> {
 	/// Parse a template from a string slice.
@@ -109,19 +118,13 @@ impl Clone for TemplateBuf {
 		let source = self.source.clone();
 		let raw = self.template.inner().raw.clone();
 
-		let template = Template {
-			raw,
-			source: &*source,
-		};
+		let template = Template { raw, source: &*source };
 		// SAFETY: The str slice given to `template` must remain valid.
 		// Since `String` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
 		let template = unsafe { template.transmute_lifetime() };
 		let template = NonAliasing::new(template);
-		Self {
-			template,
-			source,
-		}
+		Self { template, source }
 	}
 }
 
@@ -133,6 +136,14 @@ impl std::fmt::Debug for TemplateBuf {
 			.finish()
 	}
 }
+
+impl std::cmp::PartialEq for TemplateBuf {
+	fn eq(&self, other: &Self) -> bool {
+		self.as_template() == other.as_template()
+	}
+}
+
+impl std::cmp::Eq for TemplateBuf {}
 
 impl TemplateBuf {
 	/// Parse a template from a string.
@@ -256,6 +267,15 @@ impl std::fmt::Debug for ByteTemplate<'_> {
 	}
 }
 
+impl std::cmp::PartialEq for ByteTemplate<'_> {
+	#[inline]
+	fn eq(&self, other: &Self) -> bool {
+		self.source == other.source
+	}
+}
+
+impl std::cmp::Eq for ByteTemplate<'_> {}
+
 impl<'a> ByteTemplate<'a> {
 	/// Parse a template from a byte slice.
 	///
@@ -333,10 +353,7 @@ impl Clone for ByteTemplateBuf {
 		let source = self.source.clone();
 		let raw = self.template.inner().raw.clone();
 
-		let template = ByteTemplate {
-			raw,
-			source: &*source,
-		};
+		let template = ByteTemplate { raw, source: &*source };
 
 		// SAFETY: The slice given to `template` must remain valid.
 		// Since `Pin<Vec<u8>>` keeps data on the heap, it remains valid when the `source` is moved.
@@ -344,10 +361,7 @@ impl Clone for ByteTemplateBuf {
 		let template = unsafe { template.transmute_lifetime() };
 		let template = NonAliasing::new(template);
 
-		Self {
-			template,
-			source,
-		}
+		Self { template, source }
 	}
 }
 
@@ -359,6 +373,15 @@ impl std::fmt::Debug for ByteTemplateBuf {
 			.finish()
 	}
 }
+
+impl std::cmp::PartialEq for ByteTemplateBuf {
+	#[inline]
+	fn eq(&self, other: &Self) -> bool {
+		self.as_template() == other.as_template()
+	}
+}
+
+impl std::cmp::Eq for ByteTemplateBuf {}
 
 impl ByteTemplateBuf {
 	/// Parse a template from a vector of bytes.
