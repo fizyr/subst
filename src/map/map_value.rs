@@ -2,12 +2,12 @@ use super::VariableMap;
 
 /// [`VariableMap`] produced by [`map_value()`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct MapSubstitution<M, F> {
+pub struct MapValue<M, F> {
 	map: M,
 	func: F,
 }
 
-impl<'a, M, F, V> VariableMap<'a> for MapSubstitution<M, F>
+impl<'a, M, F, V> VariableMap<'a> for MapValue<M, F>
 where
 	M: VariableMap<'a>,
 	F: Fn(M::Value) -> V,
@@ -20,7 +20,7 @@ where
 	}
 }
 
-/// Creates a [`VariableMap`] that will apply a function `func` to values found in `map`.
+/// Creates a [`VariableMap`] that will apply a function to the values of another map.
 ///
 ///
 /// # Example
@@ -35,10 +35,10 @@ where
 /// assert_eq!(contact_info_capitalized.get("last_name"), Some("DOE".to_string()));
 /// assert_eq!(contact_info_capitalized.get("middle_name"), None);
 /// ```
-pub const fn map_value<'a, M, F, V>(map: M, func: F) -> MapSubstitution<M, F>
+pub const fn map_value<'a, M, F, V>(map: M, func: F) -> MapValue<M, F>
 where
 	M: VariableMap<'a>,
 	F: Fn(M::Value) -> V,
 {
-	MapSubstitution { map, func }
+	MapValue { map, func }
 }

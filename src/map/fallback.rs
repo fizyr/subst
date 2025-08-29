@@ -2,17 +2,17 @@ use super::VariableMap;
 
 /// [`VariableMap`] produced by [`fallback()`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct FallbackSubstitution<Base, Fallback> {
-	base: Base,
-	fallback: Fallback,
+pub struct Fallback<BaseMap, FallbackMap> {
+	base: BaseMap,
+	fallback: FallbackMap,
 }
 
-impl<'a, Value, Base, Fallback> VariableMap<'a> for FallbackSubstitution<Base, Fallback>
+impl<'a, BaseMap, FallbackMap> VariableMap<'a> for Fallback<BaseMap, FallbackMap>
 where
-	Base: VariableMap<'a, Value = Value>,
-	Fallback: VariableMap<'a, Value = Value>,
+	BaseMap: VariableMap<'a>,
+	FallbackMap: VariableMap<'a, Value = BaseMap::Value>,
 {
-	type Value = Value;
+	type Value = BaseMap::Value;
 
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		self.base.get(key).or_else(|| self.fallback.get(key))
@@ -34,6 +34,6 @@ where
 /// assert_eq!(with_fallback.get("last_name"), Some(&"Doe"));
 /// assert_eq!(with_fallback.get("middle_name"), Some(&"<unknown>"));
 /// ```
-pub const fn fallback<Base, Fallback>(base: Base, fallback: Fallback) -> FallbackSubstitution<Base, Fallback> {
-	FallbackSubstitution { base, fallback }
+pub const fn fallback<Base, Fallback>(base: Base, fallback: Fallback) -> self::Fallback<Base, Fallback> {
+	self::Fallback { base, fallback }
 }

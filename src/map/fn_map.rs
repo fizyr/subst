@@ -2,11 +2,11 @@ use super::VariableMap;
 
 /// [`VariableMap`] produced by [`from_fn()`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct FnSubstitution<F> {
+pub struct FnMap<F> {
 	func: F,
 }
 
-impl<'a, F, V> VariableMap<'a> for FnSubstitution<F>
+impl<'a, F, V> VariableMap<'a> for FnMap<F>
 where
 	F: 'a + Fn(&str) -> Option<V>,
 {
@@ -18,9 +18,7 @@ where
 	}
 }
 
-/// Creates a [`VariableMap`] that will first try to find values in `base`, and then attempt to
-/// find values in `fallback`.
-///
+/// Creates a [`VariableMap`] that delegates to the given function.
 ///
 /// # Example
 /// ```rust
@@ -36,9 +34,9 @@ where
 /// assert_eq!(contact_info.get("last_name"), Some("Doe"));
 /// assert_eq!(contact_info.get("middle_name"), None);
 /// ```
-pub const fn from_fn<F, V>(func: F) -> FnSubstitution<F>
+pub const fn from_fn<F, V>(func: F) -> FnMap<F>
 where
 	F: Fn(&str) -> Option<V>,
 {
-	FnSubstitution { func }
+	FnMap { func }
 }
