@@ -2,8 +2,7 @@ use core::mem::MaybeUninit;
 
 /// Simple wrapper around [`MaybeUninit`] that guarantees the type is initialized.
 ///
-/// This may sound odd, but the compiler can not assume that `MaybeUninit` is initialized,
-/// but as far is the compiler is concerned, `MaybeUninit<T>` is not keeping any references around, even if `T` would.
+/// This may sound odd, but as far is the compiler is concerned, `MaybeUninit<T>` is not keeping any references around, even if `T` would.
 /// So `NonAliasing<T>` is not aliassing anything untill you call `inner()` to get your `&T` back.
 ///
 /// We use this to create a (hopefully) sound self referential struct in `TemplateBuf` and `ByteTemplateBuf`.
@@ -33,5 +32,21 @@ impl<T> Drop for NonAliasing<T> {
 		unsafe {
 			drop(self.inner.assume_init_read())
 		}
+	}
+}
+
+impl<T: core::cmp::Eq> core::cmp::Eq for NonAliasing<T> {}
+
+impl<T: core::cmp::PartialEq> core::cmp::PartialEq for NonAliasing<T> {
+	fn eq(&self, other: &Self) -> bool {
+		self.inner() == other.inner()
+	}
+
+	#[allow(
+		clippy::partialeq_ne_impl,
+		reason = "we don't know how T implements eq/ne, we just forward behavior"
+	)]
+	fn ne(&self, other: &Self) -> bool {
+		self.inner() != other.inner()
 	}
 }

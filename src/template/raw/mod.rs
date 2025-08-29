@@ -4,14 +4,14 @@ mod parse;
 /// Raw template that doesn't know track the original source.
 ///
 /// Internally, this keeps a bunch of offsets into the original source.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Template {
 	/// The individual parts that make up the template.
 	parts: Vec<Part>,
 }
 
 /// One piece of a parsed template.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum Part {
 	/// A literal string to be used verbatim from the original source.
 	Literal(Literal),
@@ -24,7 +24,7 @@ pub enum Part {
 }
 
 /// A literal string to be used verbatim from the original source.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Literal {
 	/// The range of the literal in the original source.
 	///
@@ -35,7 +35,7 @@ pub struct Literal {
 }
 
 /// An escaped byte.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EscapedByte {
 	/// The escaped byte.
 	///
@@ -44,7 +44,7 @@ pub struct EscapedByte {
 }
 
 /// A variable to be substituted at expansion time.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Variable {
 	/// The range in the source defining the name of the variable.
 	///
