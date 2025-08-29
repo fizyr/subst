@@ -16,7 +16,7 @@ mod raw;
 ///
 /// If you have a byte slice or vector instead of a string,
 /// you can use [`ByteTemplate`] or [`ByteTemplateBuf`].
-#[derive(Clone)]
+#[derive(Clone, Eq)]
 pub struct Template<'a> {
 	source: &'a str,
 	raw: raw::Template,
@@ -35,8 +35,6 @@ impl std::cmp::PartialEq for Template<'_> {
 		self.source == other.source
 	}
 }
-
-impl std::cmp::Eq for Template<'_> {}
 
 impl<'a> Template<'a> {
 	/// Parse a template from a string slice.
@@ -103,6 +101,7 @@ impl<'a> Template<'a> {
 ///
 /// If you have a byte slice or vector instead of a string,
 /// you can use [`ByteTemplate`] or [`ByteTemplateBuf`].
+#[derive(Eq)]
 pub struct TemplateBuf {
 	// SAFETY: To avoid dangling references, Template must be dropped before
 	// source, therefore the template field must be precede the source field.
@@ -118,7 +117,7 @@ impl Clone for TemplateBuf {
 		let source = self.source.clone();
 		let raw = self.template.inner().raw.clone();
 
-		let template = Template { raw, source: &*source };
+		let template = Template { raw, source: &source };
 		// SAFETY: The str slice given to `template` must remain valid.
 		// Since `String` keeps data on the heap, it remains valid when the `source` is moved.
 		// We MUST ensure we do not modify, drop or overwrite `source`.
@@ -143,8 +142,6 @@ impl std::cmp::PartialEq for TemplateBuf {
 	}
 }
 
-impl std::cmp::Eq for TemplateBuf {}
-
 impl TemplateBuf {
 	/// Parse a template from a string.
 	///
@@ -161,7 +158,7 @@ impl TemplateBuf {
 	#[inline]
 	pub fn from_string(source: String) -> Result<Self, ParseError> {
 		let source = Pin::new(source);
-		let template = Template::from_str(&*source)?;
+		let template = Template::from_str(&source)?;
 
 		// SAFETY: The str slice given to `template` must remain valid.
 		// Since `String` keeps data on the heap, it remains valid when the `source` is moved.
@@ -169,6 +166,12 @@ impl TemplateBuf {
 		let template = unsafe { template.transmute_lifetime() };
 		let template = NonAliasing::new(template);
 		Ok(Self { source, template })
+	}
+
+	/// Get the original source string.
+	#[inline]
+	pub fn source(&self) -> &str {
+		&self.source
 	}
 
 	/// Consume the template to get the original source string.
@@ -228,7 +231,7 @@ impl From<Template<'_>> for TemplateBuf {
 		let source: Pin<String> = Pin::new(other.source.into());
 
 		let template = Template {
-			source: &*source,
+			source: &source,
 			raw: other.raw,
 		};
 
@@ -353,7 +356,7 @@ impl Clone for ByteTemplateBuf {
 		let source = self.source.clone();
 		let raw = self.template.inner().raw.clone();
 
-		let template = ByteTemplate { raw, source: &*source };
+		let template = ByteTemplate { raw, source: &source };
 
 		// SAFETY: The slice given to `template` must remain valid.
 		// Since `Pin<Vec<u8>>` keeps data on the heap, it remains valid when the `source` is moved.
@@ -397,7 +400,7 @@ impl ByteTemplateBuf {
 	#[inline]
 	pub fn from_vec(source: Vec<u8>) -> Result<Self, ParseError> {
 		let source = Pin::new(source);
-		let template = ByteTemplate::from_slice(&*source)?;
+		let template = ByteTemplate::from_slice(&source)?;
 
 		// SAFETY: The slice given to `template` must remain valid.
 		// Since `Vec` keeps data on the heap, it remains valid when the `source` is moved.
@@ -406,6 +409,12 @@ impl ByteTemplateBuf {
 		let template = NonAliasing::new(template);
 
 		Ok(Self { source, template })
+	}
+
+	/// Get the original source bytes.
+	#[inline]
+	pub fn source(&self) -> &[u8] {
+		&self.source
 	}
 
 	/// Consume the template to get the original source vector.
@@ -466,7 +475,7 @@ impl From<ByteTemplate<'_>> for ByteTemplateBuf {
 		let source = Pin::new(source);
 
 		let template = ByteTemplate {
-			source: &*source,
+			source: &source,
 			raw: other.raw,
 		};
 
@@ -486,7 +495,10 @@ impl std::fmt::Debug for DebugByteString<'_> {
 	#[inline]
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		if let Ok(data) = std::str::from_utf8(self.0) {
-			write!(f, "b{:?}", data)
+			#[allow(clippy::uninlined_format_args, reason = "this is not worth an MSRV bump")]
+			{
+				write!(f, "b{:?}", data)
+			}
 		} else {
 			std::fmt::Debug::fmt(self.0, f)
 		}
