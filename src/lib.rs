@@ -86,8 +86,8 @@
 pub mod error;
 pub use error::Error;
 
-mod map;
-pub use map::*;
+pub mod map;
+pub use map::{Env, EnvBytes, NoSubstitution, VariableMap};
 
 mod template;
 pub use template::*;

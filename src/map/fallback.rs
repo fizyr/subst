@@ -25,7 +25,7 @@ where
 ///
 /// # Example
 /// ```rust
-/// # use subst::{fallback, VariableMap};
+/// # use subst::map::{fallback, VariableMap};
 ///
 /// let contact_info = [("first_name", "John"), ("last_name", "Doe")];
 /// let with_fallback = fallback(contact_info, [("middle_name", "<unknown>")]);

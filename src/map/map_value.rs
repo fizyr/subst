@@ -25,7 +25,7 @@ where
 ///
 /// # Example
 /// ```rust
-/// # use subst::{map_value, VariableMap};
+/// # use subst::map::{map_value, VariableMap};
 ///
 /// let contact_info = [("first_name", "John"), ("last_name", "Doe")];
 ///

@@ -24,7 +24,7 @@ where
 ///
 /// # Example
 /// ```rust
-/// # use subst::{from_fn, VariableMap};
+/// # use subst::map::{from_fn, VariableMap};
 ///
 /// let contact_info = from_fn(|key| match key {
 ///     "first_name" => Some("John"),
