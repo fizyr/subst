@@ -1,6 +1,17 @@
+//! Maps and related utilities for variable substitution.
+
 use std::borrow::Borrow;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::BuildHasher;
+
+mod fallback;
+pub use fallback::*;
+
+mod fn_map;
+pub use fn_map::*;
+
+mod map_value;
+pub use map_value::*;
 
 /// Trait for types that can be used as a variable map.
 pub trait VariableMap<'a> {
@@ -247,127 +258,4 @@ impl<'a, V: 'a, S: BuildHasher> VariableMap<'a> for HashMap<String, V, S> {
 	fn get(&'a self, key: &str) -> Option<Self::Value> {
 		self.get(key)
 	}
-}
-
-/// [`VariableMap`] produced by [`fallback()`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct FallbackSubstitution<Base, Fallback> {
-	base: Base,
-	fallback: Fallback,
-}
-
-impl<'a, Value, Base, Fallback> VariableMap<'a> for FallbackSubstitution<Base, Fallback>
-where
-	Base: VariableMap<'a, Value = Value>,
-	Fallback: VariableMap<'a, Value = Value>,
-{
-	type Value = Value;
-
-	fn get(&'a self, key: &str) -> Option<Self::Value> {
-		self.base.get(key).or_else(|| self.fallback.get(key))
-	}
-}
-
-/// Creates a [`VariableMap`] that will first try to find values in `base`, and then attempt to
-/// find values in `fallback`.
-///
-///
-/// # Example
-/// ```rust
-/// # use subst::{fallback, VariableMap};
-///
-/// let contact_info = [("first_name", "John"), ("last_name", "Doe")];
-/// let with_fallback = fallback(contact_info, [("middle_name", "<unknown>")]);
-///
-/// assert_eq!(with_fallback.get("first_name"), Some(&"John"));
-/// assert_eq!(with_fallback.get("last_name"), Some(&"Doe"));
-/// assert_eq!(with_fallback.get("middle_name"), Some(&"<unknown>"));
-/// ```
-pub const fn fallback<Base, Fallback>(base: Base, fallback: Fallback) -> FallbackSubstitution<Base, Fallback> {
-	FallbackSubstitution { base, fallback }
-}
-
-/// [`VariableMap`] produced by [`from_fn()`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct FnSubstitution<F> {
-	func: F,
-}
-
-impl<'a, F, V> VariableMap<'a> for FnSubstitution<F>
-where
-	F: 'a + Fn(&str) -> Option<V>,
-{
-	type Value = V;
-
-	#[inline(always)]
-	fn get(&'a self, key: &str) -> Option<Self::Value> {
-		(self.func)(key)
-	}
-}
-
-/// Creates a [`VariableMap`] that will first try to find values in `base`, and then attempt to
-/// find values in `fallback`.
-///
-///
-/// # Example
-/// ```rust
-/// # use subst::{from_fn, VariableMap};
-///
-/// let contact_info = from_fn(|key| match key {
-///     "first_name" => Some("John"),
-///     "last_name" => Some("Doe"),
-///     _ => None,
-/// });
-///
-/// assert_eq!(contact_info.get("first_name"), Some("John"));
-/// assert_eq!(contact_info.get("last_name"), Some("Doe"));
-/// assert_eq!(contact_info.get("middle_name"), None);
-/// ```
-pub const fn from_fn<F, V>(func: F) -> FnSubstitution<F>
-where
-	F: Fn(&str) -> Option<V>,
-{
-	FnSubstitution { func }
-}
-
-/// [`VariableMap`] produced by [`map_value()`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct MapSubstitution<M, F> {
-	map: M,
-	func: F,
-}
-
-impl<'a, M, F, V> VariableMap<'a> for MapSubstitution<M, F>
-where
-	M: VariableMap<'a>,
-	F: Fn(M::Value) -> V,
-{
-	type Value = V;
-
-	fn get(&'a self, key: &str) -> Option<Self::Value> {
-		self.map.get(key).map(|value| (self.func)(value))
-	}
-}
-
-/// Creates a [`VariableMap`] that will apply a function `func` to values found in `map`.
-///
-///
-/// # Example
-/// ```rust
-/// # use subst::{map_value, VariableMap};
-///
-/// let contact_info = [("first_name", "John"), ("last_name", "Doe")];
-///
-/// let contact_info_capitalized = map_value(contact_info, |value| value.to_uppercase());
-///
-/// assert_eq!(contact_info_capitalized.get("first_name"), Some("JOHN".to_string()));
-/// assert_eq!(contact_info_capitalized.get("last_name"), Some("DOE".to_string()));
-/// assert_eq!(contact_info_capitalized.get("middle_name"), None);
-/// ```
-pub const fn map_value<'a, M, F, V>(map: M, func: F) -> MapSubstitution<M, F>
-where
-	M: VariableMap<'a>,
-	F: Fn(M::Value) -> V,
-{
-	MapSubstitution { map, func }
 }
