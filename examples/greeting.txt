@@ -1,0 +1,12 @@
+Hello $USER!
+
+It's nice to see you! Here is some information about the current environment:
+
+\$CARGO:                 $CARGO
+\$CARGO_PKG_NAME:        $CARGO_PKG_NAME
+\$CARGO_PKG_VERSION:     $CARGO_PKG_VERSION
+\$CARGO_PKG_DESCRIPTION: $CARGO_PKG_DESCRIPTION
+\$CARGO_PKG_AUTHORS:     $CARGO_PKG_AUTHORS
+\$CARGO_PKG_HOMEPAGE:    $CARGO_PKG_HOMEPAGE
+\$CARGO_CRATE_NAME:      $CARGO_CRATE_NAME
+\$PATH:                  $PATH
